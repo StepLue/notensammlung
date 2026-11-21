@@ -1,7 +1,7 @@
 // Notensammlung – Schritt 2: Sammlung, Songbooks, Anzeige, Halbseiten-Blättern, Fußpedal, Metronom
 import * as pdfjsLib from './lib/pdf.min.mjs';
 
-const APP_VERSION = '0.2.1';
+const APP_VERSION = '0.3.0';
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
 
 const $ = (id) => document.getElementById(id);
@@ -42,6 +42,7 @@ const DB = {
   get(store, id) { return this.run(store, 'readonly', (s) => s.get(id)); },
   put(store, obj) { return this.run(store, 'readwrite', (s) => s.put(obj)); },
   del(store, id) { return this.run(store, 'readwrite', (s) => s.delete(id)); },
+  byIndex(store, index, value) { return this.run(store, 'readonly', (s) => s.index(index).getAll(IDBKeyRange.only(value))); },
   delByIndex(store, index, value) {
     return this.run(store, 'readwrite', (s) => {
       const r = s.index(index).openCursor(IDBKeyRange.only(value));
@@ -85,12 +86,14 @@ function toast(msg, ms = 2600) {
 function showView(id) {
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === id));
 }
-function confirmDlg(title, text, yes = 'Löschen') {
+function confirmDlg(title, text, yes = 'Löschen', no = 'Abbrechen', yesClass = 'danger') {
   return new Promise((resolve) => {
     const d = $('confirmDlg');
     $('cTitle').textContent = title;
     $('cText').textContent = text;
     $('cYes').textContent = yes;
+    $('cYes').className = 'btn ' + yesClass;
+    $('cNo').textContent = no;
     d.returnValue = '';
     d.addEventListener('close', () => resolve(d.returnValue === 'yes'), { once: true });
     d.showModal();
@@ -108,6 +111,11 @@ const sortSongbooks = () => songbooks.sort((a, b) => collator.compare(a.name, b.
 function sbItems(sb) { return sb.entries.map((en) => ({ en, s: scoreById(en.scoreId) })).filter((x) => x.s); }
 function sbPages(sb) { return sbItems(sb).reduce((n, x) => n + (x.s.pages || 0), 0); }
 async function saveSongbook(sb) { sb.updated = Date.now(); await DB.put('songbooks', sb); }
+async function deleteEntryNotes(sbId, eids) {
+  if (!eids.length) return;
+  const rows = await DB.byIndex('annotations', 'songbookId', sbId);
+  for (const r of rows) if (eids.includes(r.eid)) await DB.del('annotations', r.key);
+}
 
 /* =========================================================
    Bildschirm 1: Sammlung mit Reitern „Noten“ und „Songbooks“
@@ -336,8 +344,10 @@ $('fDelete').addEventListener('click', async () => {
   const ok = await confirmDlg('Stück löschen?', `„${s.title}“ wird aus der Sammlung entfernt. Die Datei auf deinem PC bleibt erhalten.${extra}`);
   if (!ok) return;
   for (const sb of affected) {
+    const gone = sb.entries.filter((e) => e.scoreId === s.id).map((e) => e.eid);
     sb.entries = sb.entries.filter((e) => e.scoreId !== s.id);
     await saveSongbook(sb);
+    await deleteEntryNotes(sb.id, gone);
   }
   await DB.del('scores', s.id);
   await DB.del('files', s.id);
@@ -395,8 +405,13 @@ $('sbEntries').addEventListener('click', async (e) => {
     const idx = curSb.entries.findIndex((x) => x.eid === rm.dataset.remove);
     if (idx < 0) return;
     const title = scoreById(curSb.entries[idx].scoreId)?.title || 'Stück';
+    const eid = curSb.entries[idx].eid;
+    const notes = (await DB.byIndex('annotations', 'songbookId', curSb.id)).filter((a) => a.eid === eid);
+    if (notes.length && !(await confirmDlg('Stück entfernen?',
+      `„${title}“ hat in diesem Songbook Notizen. Sie werden mit entfernt.`, 'Entfernen'))) return;
     curSb.entries.splice(idx, 1);
     await saveSongbook(curSb);
+    await deleteEntryNotes(curSb.id, [eid]);
     renderSongbook();
     toast(`„${title}“ entfernt – das Original bleibt in der Sammlung`);
     return;
@@ -557,10 +572,25 @@ $('sbFDup').addEventListener('click', async () => {
     entries: src.entries.map((en) => ({ eid: uid(), scoreId: en.scoreId, copiedFrom: en.eid })),
   };
   await DB.put('songbooks', copy);
+  const notes = await DB.byIndex('annotations', 'songbookId', src.id);
+  let withNotes = false;
+  if (notes.length) {
+    withNotes = await confirmDlg('Notizen mitkopieren?',
+      `„${src.name}“ enthält Notizen. Sollen sie in die Kopie übernommen werden? Danach sind beide unabhängig voneinander.`,
+      'Mit Notizen', 'Ohne Notizen', 'primary');
+  }
+  if (withNotes) {
+    const map = new Map(copy.entries.map((en) => [en.copiedFrom, en.eid]));
+    for (const a of notes) {
+      const eid = map.get(a.eid);
+      if (!eid) continue;
+      await DB.put('annotations', { key: `${copy.id}|${eid}|${a.page}`, songbookId: copy.id, eid, page: a.page, strokes: a.strokes });
+    }
+  }
   songbooks.push(copy);
   sortSongbooks();
   openSongbook(copy.id);
-  toast('Songbook dupliziert');
+  toast(withNotes ? 'Songbook mit Notizen dupliziert' : 'Songbook dupliziert');
 });
 $('sbFDelete').addEventListener('click', async () => {
   const sb = sbEditing;
@@ -604,8 +634,9 @@ function openSongbookPlayer(sb, startEntry) {
   startPlayback({ title: sb.name, songbook: sb, entries }, startEntry);
 }
 
-function startPlayback(opts, startEntry) {
+async function startPlayback(opts, startEntry) {
   closeDocs();
+  await loadAnnotations(opts.songbook);
   V.title = opts.title;
   V.songbook = opts.songbook;
   V.entries = opts.entries;
@@ -621,6 +652,9 @@ function startPlayback(opts, startEntry) {
   V.curEntry = -1;
   $('btnHalf').classList.toggle('on', V.half);
   $('btnToc').classList.toggle('hidden', !V.songbook);
+  $('btnInk').classList.toggle('hidden', !V.songbook);
+  setInkMode(false);
+  $('ink').getContext('2d').clearRect(0, 0, $('ink').width, $('ink').height);
   $('btnBack').textContent = V.songbook ? '‹ Songbook' : '‹ Sammlung';
   showView('viewer');
   goToSeq(V.entryStart[startEntry] || 0);
@@ -722,10 +756,12 @@ async function draw() {
   ctx.fillStyle = '#2B2A33';
   ctx.fillRect(0, 0, W, H);
 
-  const place = (c) => ({ x: Math.round((W - c.width) / 2), y: Math.round((H - c.height) / 2) });
+  const place = (c) => ({ x: Math.round((W - c.width) / 2), y: Math.round((H - c.height) / 2), w: c.width, h: c.height });
+  const parts = [];
   if (top === bottom) {
     const p = place(cTop);
     ctx.drawImage(cTop, p.x, p.y);
+    parts.push({ seq: top, rect: p, clip: [0, H] });
   } else {
     const mid = Math.round(H / 2);
     ctx.save(); ctx.beginPath(); ctx.rect(0, mid, W, H - mid); ctx.clip();
@@ -734,7 +770,12 @@ async function draw() {
     const pt = place(cTop); ctx.drawImage(cTop, pt.x, pt.y); ctx.restore();
     ctx.fillStyle = '#D9A04A';
     ctx.fillRect(0, mid - Math.round(2 * dpr), W, Math.round(4 * dpr));
+    parts.push({ seq: top, rect: pt, clip: [0, mid] }, { seq: bottom, rect: pb, clip: [mid, H] });
   }
+  V.dpr = dpr;
+  V.parts = V.songbook ? parts.map((p) => ({ ...p, key: annKey(p.seq) })) : [];
+  renderInkBase();
+  renderInk();
   updatePageInfo(top, bottom);
 
   trimAround(top);
@@ -747,7 +788,7 @@ function onEntry(e) {
   if (e === V.curEntry) return;
   V.curEntry = e;
   const s = scoreById(V.entries[e].scoreId);
-  $('vtitle').textContent = V.songbook ? `${s.title}` : s.title;
+  $('vtitle').textContent = s.title;
   if (!Metro.running) Metro.loadFor(s);
   else Metro.score = s; // läuft weiter im aktuellen Tempo
 }
@@ -767,6 +808,7 @@ function updatePageInfo(top, bottom) {
 
 function go(delta) {
   if (!V.n) return;
+  if (Ink.cur) commitStroke();
   const next = Math.min(maxStep(), Math.max(0, V.step + delta));
   if (next === V.step) {
     if (delta > 0) toast(V.songbook ? 'Ende des Songbooks' : 'Letzte Seite', 1200);
@@ -824,6 +866,8 @@ function toggleChrome() {
 $('btnBack').addEventListener('click', () => {
   Metro.stop();
   setMetroView('closed');
+  if (Ink.cur) commitStroke();
+  setInkMode(false);
   closeDocs();
   V.n = 0;
   if (V.songbook && songbooks.includes(V.songbook)) { curSb = V.songbook; renderSongbook(); showView('songbookView'); }
@@ -831,13 +875,374 @@ $('btnBack').addEventListener('click', () => {
 });
 $('btnHalf').addEventListener('click', () => setHalf(!V.half));
 
-/* ---------- Touch: tippen links/rechts, wischen ---------- */
+/* =========================================================
+   Schritt 3: Pencil-Notizen – nur in Songbooks
+   Eine Notiz-Ebene je Songbook-Eintrag und Seite:
+   key = songbookId|eid|seite  →  { key, songbookId, eid, page, strokes }
+   Koordinaten relativ zur Seite (0…1), damit sie bei jeder
+   Bildschirmgröße und beim Drehen genau sitzen.
+   Das Original-PDF wird nie verändert.
+   ========================================================= */
+const INK_COLORS = ['#C62828', '#1565C0', '#1F1D2B', '#2E7D32', '#F2B705'];
+const INK_SIZES = { pen: [0.0016, 0.0028, 0.0048], marker: [0.012, 0.02, 0.03], text: [0.022, 0.03, 0.042] };
+const Ink = {
+  mode: false,                       // Notiz-Modus (Werkzeugleiste offen)
+  tool: localStorage.getItem('inkTool') || 'pen',
+  color: localStorage.getItem('inkColor') || INK_COLORS[0],
+  markerColor: localStorage.getItem('inkMarkerColor') || INK_COLORS[4],
+  size: Number(localStorage.getItem('inkSize') || 1),
+  visible: localStorage.getItem('inkVisible') !== '0',
+  ann: new Map(),                    // key -> strokes[]
+  undo: [], redo: [],
+  cur: null,                         // aktueller Strich
+  erase: null,                       // { prev: Map(key -> strokes) }
+  penActive: false,
+  base: null,                        // Zwischenspeicher der fertigen Striche
+};
+V.parts = [];
+
+const annKey = (seqIdx) => {
+  const it = V.seq[seqIdx];
+  return `${V.songbook.id}|${V.entries[it.e].eid}|${it.page}`;
+};
+const strokesOf = (key) => Ink.ann.get(key) || [];
+
+async function loadAnnotations(sb) {
+  Ink.ann.clear();
+  Ink.undo = []; Ink.redo = [];
+  if (!sb) return;
+  const rows = await DB.byIndex('annotations', 'songbookId', sb.id);
+  for (const r of rows) Ink.ann.set(r.key, r.strokes || []);
+}
+async function saveAnn(key) {
+  const strokes = strokesOf(key);
+  if (!strokes.length) { Ink.ann.delete(key); await DB.del('annotations', key); return; }
+  const [songbookId, eid, page] = key.split('|');
+  await DB.put('annotations', { key, songbookId, eid, page: Number(page), strokes });
+}
+function pushUndo(key, prev) {
+  Ink.undo.push({ key, strokes: prev });
+  if (Ink.undo.length > 100) Ink.undo.shift();
+  Ink.redo = [];
+  updateInkBar();
+}
+async function undoRedo(from, to) {
+  const a = from.pop();
+  if (!a) return;
+  to.push({ key: a.key, strokes: strokesOf(a.key).slice() });
+  Ink.ann.set(a.key, a.strokes);
+  await saveAnn(a.key);
+  // zur betroffenen Seite springen, falls sie nicht sichtbar ist
+  if (!V.parts.some((p) => p.key === a.key)) {
+    const i = V.seq.findIndex((_, k) => annKey(k) === a.key);
+    if (i >= 0) { goToSeq(i); updateInkBar(); return; }
+  }
+  renderInkBase(); renderInk(); updateInkBar();
+}
+
+/* ---------- Zeichnen ---------- */
+function drawStroke(ctx, st, r) {
+  const X = (x) => r.x + x * r.w, Y = (y) => r.y + y * r.h;
+  ctx.save();
+  if (st.tool === 'text') {
+    ctx.fillStyle = st.color;
+    ctx.font = `600 ${Math.max(8, st.size * r.w)}px -apple-system, "Segoe UI", sans-serif`;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(st.text, X(st.x), Y(st.y));
+    ctx.restore();
+    return;
+  }
+  const pts = st.pts;
+  const base = st.w * r.w;
+  ctx.strokeStyle = st.color;
+  ctx.fillStyle = st.color;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  if (st.tool === 'marker') {
+    ctx.globalAlpha = 0.4;
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.lineWidth = base;
+    ctx.beginPath();
+    ctx.moveTo(X(pts[0][0]), Y(pts[0][1]));
+    if (pts.length === 1) ctx.lineTo(X(pts[0][0]) + 0.1, Y(pts[0][1]));
+    for (let i = 1; i < pts.length - 1; i++) {
+      const mx = (pts[i][0] + pts[i + 1][0]) / 2, my = (pts[i][1] + pts[i + 1][1]) / 2;
+      ctx.quadraticCurveTo(X(pts[i][0]), Y(pts[i][1]), X(mx), Y(my));
+    }
+    if (pts.length > 1) ctx.lineTo(X(pts[pts.length - 1][0]), Y(pts[pts.length - 1][1]));
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+  // Stift: Strichstärke folgt dem Andruck
+  const wAt = (p) => base * (0.55 + 0.9 * (p[2] ?? 0.5));
+  if (pts.length === 1) {
+    ctx.beginPath(); ctx.arc(X(pts[0][0]), Y(pts[0][1]), wAt(pts[0]) / 2, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    return;
+  }
+  let px = X(pts[0][0]), py = Y(pts[0][1]);
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i];
+    const nx = i < pts.length - 1 ? (X(p[0]) + X(pts[i + 1][0])) / 2 : X(p[0]);
+    const ny = i < pts.length - 1 ? (Y(p[1]) + Y(pts[i + 1][1])) / 2 : Y(p[1]);
+    ctx.lineWidth = wAt(p);
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.quadraticCurveTo(X(p[0]), Y(p[1]), nx, ny);
+    ctx.stroke();
+    px = nx; py = ny;
+  }
+  ctx.restore();
+}
+
+function inkCanvas() {
+  const c = $('ink'), m = $('canvas');
+  if (c.width !== m.width || c.height !== m.height) {
+    c.width = m.width; c.height = m.height;
+    c.style.width = m.style.width; c.style.height = m.style.height;
+  }
+  return c;
+}
+// fertige Striche der sichtbaren Seiten in einen Zwischenspeicher zeichnen
+function renderInkBase() {
+  const c = inkCanvas();
+  if (!Ink.base) Ink.base = document.createElement('canvas');
+  const b = Ink.base;
+  b.width = c.width; b.height = c.height;
+  const ctx = b.getContext('2d');
+  ctx.clearRect(0, 0, b.width, b.height);
+  if (!Ink.visible || !V.songbook) return;
+  for (const part of V.parts) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, part.clip[0], b.width, part.clip[1] - part.clip[0]); ctx.clip();
+    for (const st of strokesOf(part.key)) drawStroke(ctx, st, part.rect);
+    ctx.restore();
+  }
+}
+function renderInk() {
+  const c = inkCanvas();
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  if (Ink.base) ctx.drawImage(Ink.base, 0, 0);
+  if (Ink.cur) {
+    const part = Ink.cur.part;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, part.clip[0], c.width, part.clip[1] - part.clip[0]); ctx.clip();
+    drawStroke(ctx, Ink.cur.st, part.rect);
+    ctx.restore();
+  }
+}
+
+/* ---------- Eingabe ---------- */
+function partAt(e) {
+  const dpr = V.dpr || 1;
+  const x = e.clientX * dpr, y = e.clientY * dpr;
+  for (const part of V.parts) {
+    if (y >= part.clip[0] && y < part.clip[1] && x >= part.rect.x && x <= part.rect.x + part.rect.w) {
+      return { part, nx: (x - part.rect.x) / part.rect.w, ny: (y - part.rect.y) / part.rect.h };
+    }
+  }
+  return null;
+}
+function normIn(part, e) {
+  const dpr = V.dpr || 1;
+  return [(e.clientX * dpr - part.rect.x) / part.rect.w, (e.clientY * dpr - part.rect.y) / part.rect.h];
+}
+const pressureOf = (e) => (e.pointerType === 'pen' && e.pressure > 0 ? e.pressure : 0.5);
+
+function inkDown(e) {
+  const hit = partAt(e);
+  if (!hit) return false;
+  if (!Ink.visible) { Ink.visible = true; localStorage.setItem('inkVisible', '1'); renderInkBase(); updateInkBar(); }
+  // Ohne Werkzeugleiste schreibt der Pencil immer mit dem Stift
+  const tool = Ink.mode ? Ink.tool : 'pen';
+  if (tool === 'text') { askText(hit); return true; }
+  if (tool === 'eraser') {
+    Ink.erase = { prev: new Map(), id: e.pointerId };
+    eraseAt(e);
+    return true;
+  }
+  const marker = tool === 'marker';
+  const st = {
+    tool, color: marker ? Ink.markerColor : Ink.color,
+    w: INK_SIZES[marker ? 'marker' : 'pen'][Ink.size],
+    pts: [[hit.nx, hit.ny, pressureOf(e)]],
+  };
+  Ink.cur = { st, part: hit.part, id: e.pointerId };
+  renderInk();
+  return true;
+}
+function inkMove(e) {
+  if (Ink.erase && e.pointerId === Ink.erase.id) { eraseAt(e); return; }
+  if (!Ink.cur || e.pointerId !== Ink.cur.id) return;
+  const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  for (const ev of (evs.length ? evs : [e])) {
+    const [x, y] = normIn(Ink.cur.part, ev);
+    const last = Ink.cur.st.pts[Ink.cur.st.pts.length - 1];
+    if (Math.hypot(x - last[0], y - last[1]) < 0.0008) continue;
+    Ink.cur.st.pts.push([+x.toFixed(5), +y.toFixed(5), +pressureOf(ev).toFixed(2)]);
+  }
+  renderInk();
+}
+async function inkUp(e) {
+  if (Ink.erase && e.pointerId === Ink.erase.id) {
+    const { prev } = Ink.erase;
+    Ink.erase = null;
+    for (const [key, strokes] of prev) { pushUndo(key, strokes); await saveAnn(key); }
+    return;
+  }
+  if (!Ink.cur || e.pointerId !== Ink.cur.id) return;
+  await commitStroke();
+}
+async function commitStroke() {
+  if (!Ink.cur) return;
+  const { st, part } = Ink.cur;
+  Ink.cur = null;
+  const prev = strokesOf(part.key).slice();
+  Ink.ann.set(part.key, [...prev, st]);
+  pushUndo(part.key, prev);
+  renderInkBase(); renderInk();
+  await saveAnn(part.key);
+}
+
+// Radierer: entfernt ganze Striche, die berührt werden
+function segDist(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const l = dx * dx + dy * dy;
+  let t = l ? ((px - ax) * dx + (py - ay) * dy) / l : 0;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+function eraseAt(e) {
+  const hit = partAt(e);
+  if (!hit) return;
+  const key = hit.part.key;
+  const strokes = strokesOf(key);
+  const R = 0.012;
+  const keep = strokes.filter((st) => {
+    if (st.tool === 'text') {
+      const wApprox = st.size * 0.55 * st.text.length;
+      return !(hit.nx >= st.x - R && hit.nx <= st.x + wApprox + R && Math.abs(hit.ny - st.y) < st.size * 0.6 + R);
+    }
+    const r = R + st.w / 2;
+    const p = st.pts;
+    if (p.length === 1) return Math.hypot(hit.nx - p[0][0], hit.ny - p[0][1]) > r;
+    for (let i = 1; i < p.length; i++) if (segDist(hit.nx, hit.ny, p[i - 1][0], p[i - 1][1], p[i][0], p[i][1]) < r) return false;
+    return true;
+  });
+  if (keep.length === strokes.length) return;
+  if (!Ink.erase.prev.has(key)) Ink.erase.prev.set(key, strokes.slice());
+  Ink.ann.set(key, keep);
+  renderInkBase(); renderInk();
+}
+
+// Text: an der angetippten Stelle einfügen
+let textTarget = null;
+function askText(hit) {
+  textTarget = hit;
+  $('textInput').value = '';
+  $('textDlg').showModal();
+  setTimeout(() => $('textInput').focus(), 50);
+}
+$('textCancel').addEventListener('click', () => $('textDlg').close());
+$('textForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = $('textInput').value.trim();
+  $('textDlg').close();
+  if (!text || !textTarget) return;
+  const { part, nx, ny } = textTarget;
+  const prev = strokesOf(part.key).slice();
+  Ink.ann.set(part.key, [...prev, { tool: 'text', text, x: nx, y: ny, color: Ink.color, size: INK_SIZES.text[Ink.size] }]);
+  pushUndo(part.key, prev);
+  renderInkBase(); renderInk();
+  await saveAnn(part.key);
+});
+
+/* ---------- Werkzeugleiste ---------- */
+function setInkMode(on) {
+  if (on && !V.songbook) return;
+  Ink.mode = on;
+  $('inkbar').classList.toggle('hidden', !on);
+  $('btnInk').classList.toggle('on', on);
+  $('viewer').classList.toggle('inking', on);
+  if (on && !Ink.visible) { Ink.visible = true; localStorage.setItem('inkVisible', '1'); renderInkBase(); renderInk(); }
+  updateInkBar();
+  showChrome(true);
+}
+function updateInkBar() {
+  document.querySelectorAll('#inkbar [data-tool]').forEach((b) => b.classList.toggle('on', b.dataset.tool === Ink.tool));
+  const activeColor = Ink.tool === 'marker' ? Ink.markerColor : Ink.color;
+  document.querySelectorAll('#inkbar [data-color]').forEach((b) => b.classList.toggle('on', b.dataset.color === activeColor));
+  document.querySelectorAll('#inkbar [data-size]').forEach((b) => b.classList.toggle('on', Number(b.dataset.size) === Ink.size));
+  $('inkUndo').disabled = !Ink.undo.length;
+  $('inkRedo').disabled = !Ink.redo.length;
+  $('inkEye').classList.toggle('on', Ink.visible);
+  $('inkEye').textContent = Ink.visible ? '👁 an' : '👁 aus';
+}
+function buildInkBar() {
+  $('inkColors').innerHTML = INK_COLORS.map((c) => `<button data-color="${c}" style="--c:${c}" aria-label="Farbe"></button>`).join('');
+  $('inkbar').addEventListener('click', (e) => {
+    const t = e.target.closest('button');
+    if (!t) return;
+    if (t.dataset.tool) { Ink.tool = t.dataset.tool; localStorage.setItem('inkTool', Ink.tool); }
+    else if (t.dataset.color) {
+      if (Ink.tool === 'marker') { Ink.markerColor = t.dataset.color; localStorage.setItem('inkMarkerColor', Ink.markerColor); }
+      else { Ink.color = t.dataset.color; localStorage.setItem('inkColor', Ink.color); if (Ink.tool === 'eraser') Ink.tool = 'pen'; }
+    } else if (t.dataset.size) { Ink.size = Number(t.dataset.size); localStorage.setItem('inkSize', Ink.size); }
+    else if (t.id === 'inkUndo') { undoRedo(Ink.undo, Ink.redo); return; }
+    else if (t.id === 'inkRedo') { undoRedo(Ink.redo, Ink.undo); return; }
+    else if (t.id === 'inkEye') {
+      Ink.visible = !Ink.visible; localStorage.setItem('inkVisible', Ink.visible ? '1' : '0');
+      renderInkBase(); renderInk();
+    } else if (t.id === 'inkClear') { clearVisible(); return; }
+    else if (t.id === 'inkPrev') { go(-1); return; }
+    else if (t.id === 'inkNext') { go(1); return; }
+    else if (t.id === 'inkDone') { setInkMode(false); return; }
+    updateInkBar();
+  });
+}
+async function clearVisible() {
+  let any = false;
+  for (const part of V.parts) {
+    const prev = strokesOf(part.key);
+    if (!prev.length) continue;
+    any = true;
+    Ink.ann.set(part.key, []);
+    pushUndo(part.key, prev.slice());
+    await saveAnn(part.key);
+  }
+  if (!any) { toast('Auf dieser Seite gibt es keine Notizen.', 1500); return; }
+  renderInkBase(); renderInk();
+  toast('Notizen der Seite gelöscht – mit ↶ rückgängig', 2500);
+}
+$('btnInk').addEventListener('click', () => setInkMode(!Ink.mode));
+buildInkBar();
+
+let penHintShown = 0;
+
+/* ---------- Touch: tippen links/rechts, wischen – Pencil schreibt ---------- */
 let ptr = null;
-$('stage').addEventListener('pointerdown', (e) => {
-  if (e.pointerType === 'pen') return; // Pencil ist für Notizen reserviert (Schritt 3)
+const stage = $('stage');
+stage.addEventListener('pointerdown', (e) => {
+  const isPen = e.pointerType === 'pen';
+  if (isPen) Ink.penActive = true;
+  // Pencil schreibt immer (im Songbook); im Notiz-Modus auch Finger und Maus
+  if (V.songbook && (isPen || Ink.mode)) {
+    if (!isPen && Ink.penActive) return; // Handballen ignorieren, solange der Pencil schreibt
+    if (inkDown(e)) { try { stage.setPointerCapture(e.pointerId); } catch { /* egal */ } e.preventDefault(); }
+    return;
+  }
+  if (isPen) {
+    if (Date.now() - penHintShown > 8000) { toast('Notizen schreibst du in einem Songbook – das Original bleibt sauber.', 3000); penHintShown = Date.now(); }
+    return;
+  }
   ptr = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId };
 });
-$('stage').addEventListener('pointerup', (e) => {
+stage.addEventListener('pointermove', (e) => { if (Ink.cur || Ink.erase) inkMove(e); });
+stage.addEventListener('pointerup', (e) => {
+  if (e.pointerType === 'pen') Ink.penActive = false;
+  if (Ink.cur || Ink.erase) { inkUp(e); return; }
   if (!ptr || e.pointerId !== ptr.id) return;
   const dx = e.clientX - ptr.x, dy = e.clientY - ptr.y;
   const dt = performance.now() - ptr.t;
@@ -847,19 +1252,28 @@ $('stage').addEventListener('pointerup', (e) => {
     return;
   }
   if (Math.abs(dx) < 15 && Math.abs(dy) < 15) {
-    const w = $('stage').clientWidth;
+    const w = stage.clientWidth;
     if (e.clientX < w / 3) go(-1);
     else if (e.clientX > (2 * w) / 3) go(1);
     else toggleChrome();
   }
 });
-$('stage').addEventListener('pointercancel', () => { ptr = null; });
+stage.addEventListener('pointercancel', (e) => {
+  if (e.pointerType === 'pen') Ink.penActive = false;
+  if (Ink.cur || Ink.erase) inkUp(e);
+  ptr = null;
+});
 
 /* ---------- Tastatur / Bluetooth-Fußpedal ---------- */
 document.addEventListener('keydown', (e) => {
   if (!$('viewer').classList.contains('active')) return;
   if (document.querySelector('dialog[open]')) return;
   if (e.target.closest && e.target.closest('input, select, textarea')) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && V.songbook) {
+    e.preventDefault();
+    if (e.shiftKey) undoRedo(Ink.redo, Ink.undo); else undoRedo(Ink.undo, Ink.redo);
+    return;
+  }
   const nextKeys = ['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'];
   const prevKeys = ['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'];
   if (nextKeys.includes(e.key)) { e.preventDefault(); go(1); }
@@ -1030,6 +1444,6 @@ init();
 
 // Für automatische Tests
 window.__ns = {
-  DB, V, Metro, importFiles, openViewer, openSongbookPlayer, go, setHalf,
+  DB, V, Ink, Metro, importFiles, openViewer, openSongbookPlayer, go, setHalf,
   get scores() { return scores; }, get songbooks() { return songbooks; }, get curSb() { return curSb; },
 };

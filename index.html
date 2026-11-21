@@ -73,6 +73,35 @@
 <section id="viewer" class="view">
   <div id="stage" class="stage">
     <canvas id="canvas"></canvas>
+    <canvas id="ink"></canvas>
+  </div>
+
+  <!-- Notiz-Werkzeuge (nur im Songbook) -->
+  <div id="inkbar" class="inkbar hidden" role="toolbar" aria-label="Notizen">
+    <button data-tool="pen" title="Stift">✎<small>Stift</small></button>
+    <button data-tool="marker" title="Textmarker">▮<small>Marker</small></button>
+    <button data-tool="text" title="Text">T<small>Text</small></button>
+    <button data-tool="eraser" title="Radierer">⌫<small>Radierer</small></button>
+    <hr>
+    <div id="inkColors" class="inkcolors"></div>
+    <hr>
+    <div class="inksizes">
+      <button data-size="0" title="dünn"><i style="width:6px;height:6px"></i></button>
+      <button data-size="1" title="mittel"><i style="width:11px;height:11px"></i></button>
+      <button data-size="2" title="dick"><i style="width:17px;height:17px"></i></button>
+    </div>
+    <hr>
+    <div class="inkrow">
+      <button id="inkUndo" title="Rückgängig">↶</button>
+      <button id="inkRedo" title="Wiederholen">↷</button>
+    </div>
+    <button id="inkClear" title="Notizen dieser Seite löschen">🗑<small>Seite</small></button>
+    <button id="inkEye" title="Notizen ein-/ausblenden">👁 an</button>
+    <div class="inkrow">
+      <button id="inkPrev" title="Seite zurück">‹</button>
+      <button id="inkNext" title="Seite vor">›</button>
+    </div>
+    <button id="inkDone" class="done">Fertig</button>
   </div>
 
   <div id="vtop" class="vbar top">
@@ -80,6 +109,7 @@
     <div id="vtitle" class="vtitle"></div>
     <div class="vactions">
       <button id="btnToc" class="btn hidden" title="Inhalt des Songbooks">☰ Inhalt</button>
+      <button id="btnInk" class="btn toggle hidden" title="Notizen schreiben">✎ Notizen</button>
       <button id="btnHalf" class="btn toggle" title="Halbe Seiten blättern">½ Seite</button>
       <button id="btnMetro" class="btn toggle" title="Metronom">♩ Metronom</button>
     </div>
@@ -197,8 +227,20 @@
     <p id="cText"></p>
     <div class="dlg-actions">
       <span class="spacer"></span>
-      <button value="no" class="btn">Abbrechen</button>
+      <button value="no" id="cNo" class="btn">Abbrechen</button>
       <button value="yes" id="cYes" class="btn danger">Löschen</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="textDlg">
+  <form id="textForm">
+    <h2>Text einfügen</h2>
+    <label>Text <input id="textInput" autocomplete="off" placeholder="z. B. Atmen!, rit., 2. Mal leise"></label>
+    <div class="dlg-actions">
+      <span class="spacer"></span>
+      <button type="button" id="textCancel" class="btn">Abbrechen</button>
+      <button type="submit" class="btn primary">Einfügen</button>
     </div>
   </form>
 </dialog>

@@ -17,7 +17,7 @@
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; height: 100%; background: var(--paper); color: var(--ink);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; font-size: 18px; }
-body { overscroll-behavior: none; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+body { overscroll-behavior: none; touch-action: manipulation; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 input, select, textarea { -webkit-user-select: text; user-select: text; font: inherit; }
 button { font: inherit; color: inherit; cursor: pointer; }
 .hidden { display: none !important; }
@@ -177,10 +177,37 @@ dialog.tall form { display: flex; flex-direction: column; height: 100%; }
 /* ---------- Metronom minimiert ---------- */
 .metro-headbtns { display: flex; gap: 4px; }
 .metromini { position: absolute; right: calc(16px + var(--safe-r)); bottom: calc(16px + var(--safe-b)); z-index: 6;
-  border: 0; border-radius: 999px; background: rgba(31,29,43,0.85); padding: 12px 16px; transition: bottom .2s; }
-.metromini .beatrow { min-height: 0; gap: 10px; flex-wrap: nowrap; }
+  border: 0; border-radius: 999px; background: rgba(31,29,43,0.85); padding: 14px 12px; transition: bottom .2s; }
+.metromini .beatrow { min-height: 0; gap: 10px; flex-wrap: nowrap; flex-direction: column; }
 .metromini .beatrow i { width: 20px; height: 20px; background: #4A4766; }
 .metromini .beatrow i.on { background: var(--brass); }
 .metromini .beatrow i.on.accent { background: var(--red); }
 #viewer:not(.chrome-hidden) .metromini, #viewer:not(.chrome-hidden) .beatdot { bottom: calc(64px + var(--safe-b)); }
 .beatdot { transition: bottom .2s; }
+
+/* ---------- Schritt 3: Notizen ---------- */
+#ink { position: absolute; left: 0; top: 0; pointer-events: none; }
+.vbar .btn { padding: 8px 14px; }
+.inkbar { position: absolute; left: calc(10px + var(--safe-l)); top: 50%; transform: translateY(-50%); z-index: 7;
+  background: rgba(31,29,43,0.94); border-radius: 18px; padding: 8px; display: flex; flex-direction: column; gap: 6px;
+  align-items: stretch; width: 78px; max-height: calc(100% - 140px); overflow-y: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.35); }
+.inkbar button { border: 0; background: transparent; color: #F6F1E7; border-radius: 12px; min-height: 44px; font-size: 22px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px 0; line-height: 1.1; }
+.inkbar button small { font-size: 11px; font-weight: 600; opacity: 0.85; }
+.inkbar button.on { background: var(--brass); color: var(--ink); }
+.inkbar button:disabled { opacity: 0.3; }
+.inkbar hr { border: 0; border-top: 1px solid #3B3956; margin: 2px 4px; width: auto; }
+.inkcolors { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; justify-items: center; }
+.inkcolors button { width: 30px; height: 30px; min-height: 30px; border-radius: 50%; background: var(--c); border: 3px solid transparent; padding: 0; }
+.inkcolors button.on { background: var(--c); border-color: #F6F1E7; }
+.inksizes { display: flex; flex-direction: column; gap: 2px; }
+.inksizes button { min-height: 36px; }
+.inksizes i { display: block; border-radius: 50%; background: #F6F1E7; }
+.inksizes button.on { background: rgba(217,160,74,0.35); }
+.inksizes button.on i { background: var(--brass); }
+.inkrow { display: flex; gap: 4px; }
+.inkrow button { flex: 1; }
+#inkEye { font-size: 14px; font-weight: 600; }
+#inkEye.on { background: transparent; color: #F6F1E7; }
+.inkbar .done { background: var(--blue); font-size: 15px; font-weight: 700; }
+#viewer.inking .stage { cursor: crosshair; }

@@ -1,4 +1,4 @@
-# Notensammlung – Anleitung (Version 0.2.1, Schritt 2)
+# Notensammlung – Anleitung (Version 0.3.0, Schritt 3)
 
 ## Einmalig: App auf GitHub Pages veröffentlichen (am PC)
 
@@ -36,14 +36,33 @@ Achtung: Der Speicher am PC ist getrennt vom iPad. Was du am PC importierst, ist
 | Halbe Seiten | **½ Seite**: Oben steht schon die nächste Seite, unten noch die aktuelle |
 | Fußpedal | Wird wie eine Tastatur erkannt (Pfeiltasten, Bild↑/↓, Leertaste) |
 | Metronom | **♩ Metronom**: Tempo, Takt, Tap-Tempo. Das Tempo wird pro Stück gespeichert |
-| Metronom minimieren | Im Metronom auf **Minimieren**: Unten rechts bleiben nur die Schlagpunkte. Ein Tipp darauf öffnet es wieder |
+| Metronom minimieren | Im Metronom auf **Minimieren**: Unten rechts bleiben nur die Schlagpunkte (übereinander). Ein Tipp darauf öffnet es wieder |
 | Songbook anlegen | Reiter **Songbooks** → **+ Neues Songbook** → Name eingeben |
 | Stücke ins Songbook | **+ Stücke** → antippen (die Nummern zeigen die Reihenfolge) → **Hinzufügen**. Alternativ in der Notenliste über **⋯** → „Zu Songbook hinzufügen“ |
 | Reihenfolge ändern | Am Griff **☰** festhalten und ziehen |
 | Stück entfernen | **✕**: nur aus dem Songbook, das Original bleibt in der Sammlung |
 | Songbook spielen | **▶ Spielen**, oder ein Stück antippen, um ab dort zu spielen. Es wird durch alle Stücke hindurch geblättert |
 | Springen im Songbook | Beim Spielen **☰ Inhalt** → Stück antippen |
-| Umbenennen, Duplizieren, Löschen | Im Songbook auf **⋯** |
+| Umbenennen, Duplizieren, Löschen | Im Songbook auf **⋯**. Beim Duplizieren fragt die App, ob die Notizen mitkopiert werden sollen |
+
+## Notizen mit dem Pencil (nur im Songbook)
+
+Notizen gehören immer zu einem Stück **in einem bestimmten Songbook**. Das Original-PDF bleibt unverändert, und ein Stück kann in jedem Songbook eigene Notizen haben.
+
+| Was | Wie |
+|---|---|
+| Schnell etwas notieren | Einfach mit dem Pencil auf die Noten schreiben, das geht jederzeit. Der Finger blättert weiter wie gewohnt |
+| Werkzeuge | **✎ Notizen** öffnet links die Werkzeugleiste: Stift, Marker, Text, Radierer, Farben und drei Strichstärken |
+| Text | Werkzeug **T**, dann auf die gewünschte Stelle tippen und den Text eingeben |
+| Radierer | Über einen Strich fahren, dann verschwindet er ganz |
+| Rückgängig | **↶ / ↷**, am PC auch Strg+Z |
+| Seite leeren | **🗑 Seite** löscht die Notizen der sichtbaren Seite (rückgängig machbar) |
+| Notizen ausblenden | **👁**: zeigt die saubere Seite ohne Notizen |
+| Blättern beim Notieren | **‹ ›** in der Leiste oder das Fußpedal. Im Notiz-Modus schreibt auch der Finger, deshalb blättert er dort nicht |
+| Am PC | Im Notiz-Modus mit der Maus zeichnen |
+
+Ohne geöffnete Werkzeugleiste schreibt der Pencil immer mit dem Stift. Die Werkzeugleiste merkt sich Farbe und Stärke.
+Wenn du ein Stück aus dem Songbook entfernst, das Notizen hat, fragt die App vorher nach.
 
 **Tipp zum Fußpedal:** Solange das Pedal verbunden ist, blendet das iPad die Bildschirmtastatur aus, weil es das Pedal für eine Tastatur hält. Zum Eintippen von Titeln das Pedal kurz ausschalten.
 
@@ -55,7 +74,7 @@ Auf dem iPad die App zweimal schließen und öffnen. Dann ist die neue Version a
 ## Nächste Schritte
 
 - ✓ Schritt 2: Songbooks
-- Schritt 3: Pencil-Notizen pro Songbook
+- ✓ Schritt 3: Pencil-Notizen pro Songbook
 - Schritt 4: Backup, Export als PDF
 
 ---
