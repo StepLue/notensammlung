@@ -16,13 +16,17 @@
 </head>
 <body>
 
-<!-- ============ Bildschirm 1: Notensammlung ============ -->
+<!-- ============ Bildschirm 1: Sammlung (Noten / Songbooks) ============ -->
 <section id="library" class="view active">
   <header class="topbar">
     <h1>Notensammlung</h1>
+    <div class="tabs" role="tablist">
+      <button data-tab="scores" class="on">Noten</button>
+      <button data-tab="songbooks">Songbooks</button>
+    </div>
     <div class="actions">
       <span id="count" class="muted"></span>
-      <button id="btnImport" class="btn primary">+ Importieren</button>
+      <button id="btnPrimary" class="btn primary">+ Importieren</button>
     </div>
   </header>
   <div class="searchbar">
@@ -30,12 +34,10 @@
   </div>
   <div class="libbody">
     <div id="list" class="list"></div>
+    <div id="sbList" class="list hidden"></div>
     <nav id="rail" class="rail" aria-label="Register A–Z"></nav>
   </div>
-  <div id="empty" class="empty hidden">
-    <p class="empty-title">Noch keine Noten</p>
-    <p>Tippe auf <b>+ Importieren</b> und wähle eine oder mehrere PDF-Dateien aus.</p>
-  </div>
+  <div id="empty" class="empty hidden"></div>
   <div id="dropHint" class="drophint hidden">PDFs hier ablegen</div>
   <footer class="libfoot">
     <span id="storage" class="muted"></span>
@@ -44,7 +46,30 @@
   <input id="fileInput" type="file" accept="application/pdf,.pdf" multiple hidden>
 </section>
 
-<!-- ============ Bildschirm 3 (Vorschau): Notenansicht ============ -->
+<!-- ============ Bildschirm 2: Songbook bearbeiten ============ -->
+<section id="songbookView" class="view">
+  <header class="topbar">
+    <button id="sbBack" class="btn ghost">‹ Songbooks</button>
+    <div class="sbhead">
+      <h1 id="sbName"></h1>
+      <span id="sbInfo" class="muted"></span>
+    </div>
+    <div class="actions">
+      <button id="sbMore" class="btn" aria-label="Songbook-Optionen">⋯</button>
+      <button id="sbAdd" class="btn">+ Stücke</button>
+      <button id="sbPlay" class="btn primary">▶ Spielen</button>
+    </div>
+  </header>
+  <p class="hint muted">Reihenfolge ändern: am Griff ☰ ziehen · Stück antippen: ab hier spielen</p>
+  <div id="sbEntries" class="list entries"></div>
+  <div id="sbEmpty" class="empty hidden">
+    <p class="empty-title">Noch leer</p>
+    <p>Füge Stücke aus deiner Sammlung hinzu.</p>
+    <p><button id="sbEmptyAdd" class="btn primary">+ Stücke hinzufügen</button></p>
+  </div>
+</section>
+
+<!-- ============ Bildschirm 3: Notenansicht ============ -->
 <section id="viewer" class="view">
   <div id="stage" class="stage">
     <canvas id="canvas"></canvas>
@@ -54,6 +79,7 @@
     <button id="btnBack" class="btn ghost">‹ Sammlung</button>
     <div id="vtitle" class="vtitle"></div>
     <div class="vactions">
+      <button id="btnToc" class="btn hidden" title="Inhalt des Songbooks">☰ Inhalt</button>
       <button id="btnHalf" class="btn toggle" title="Halbe Seiten blättern">½ Seite</button>
       <button id="btnMetro" class="btn toggle" title="Metronom">♩ Metronom</button>
     </div>
@@ -104,12 +130,59 @@
     <label>Titel <input id="fTitle" required></label>
     <label>Komponist / Arrangeur <input id="fComposer"></label>
     <label>Tags <input id="fTags" placeholder="z. B. Posaune, Polka, Weihnachten"></label>
+    <div class="addto">
+      <span class="lbl">Zu Songbook hinzufügen</span>
+      <div class="inline">
+        <select id="fSongbook"></select>
+        <button type="button" id="fAddTo" class="btn">Hinzufügen</button>
+      </div>
+      <p class="muted small" id="fIn"></p>
+    </div>
     <p class="muted small" id="fInfo"></p>
     <div class="dlg-actions">
       <button type="button" id="fDelete" class="btn danger">Löschen</button>
       <span class="spacer"></span>
       <button type="button" id="fCancel" class="btn">Abbrechen</button>
       <button type="submit" id="fSave" class="btn primary">Speichern</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="sbDlg">
+  <form id="sbForm">
+    <h2 id="sbDlgTitle">Neues Songbook</h2>
+    <label>Name <input id="sbFName" required placeholder="z. B. Probe Dienstag" autocomplete="off"></label>
+    <div class="dlg-actions wrap">
+      <button type="button" id="sbFDelete" class="btn danger">Löschen</button>
+      <button type="button" id="sbFDup" class="btn">Duplizieren</button>
+      <span class="spacer"></span>
+      <button type="button" id="sbFCancel" class="btn">Abbrechen</button>
+      <button type="submit" class="btn primary">Speichern</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="pickDlg" class="tall">
+  <form method="dialog" onsubmit="return false">
+    <h2>Stücke hinzufügen</h2>
+    <input id="pickSearch" type="search" placeholder="Suchen …" autocomplete="off" class="dlgsearch">
+    <div id="pickList" class="picklist"></div>
+    <div class="dlg-actions">
+      <span id="pickCount" class="muted small"></span>
+      <span class="spacer"></span>
+      <button type="button" id="pickCancel" class="btn">Abbrechen</button>
+      <button type="button" id="pickOk" class="btn primary">Hinzufügen</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="tocDlg" class="tall">
+  <form method="dialog">
+    <h2 id="tocTitle">Inhalt</h2>
+    <div id="tocList" class="picklist"></div>
+    <div class="dlg-actions">
+      <span class="spacer"></span>
+      <button class="btn">Schließen</button>
     </div>
   </form>
 </dialog>
@@ -121,7 +194,7 @@
     <div class="dlg-actions">
       <span class="spacer"></span>
       <button value="no" class="btn">Abbrechen</button>
-      <button value="yes" class="btn danger">Löschen</button>
+      <button value="yes" id="cYes" class="btn danger">Löschen</button>
     </div>
   </form>
 </dialog>

@@ -1,15 +1,14 @@
-// Notensammlung – Schritt 1: Sammlung, Import, Anzeige, Halbseiten-Blättern, Fußpedal, Metronom
+// Notensammlung – Schritt 2: Sammlung, Songbooks, Anzeige, Halbseiten-Blättern, Fußpedal, Metronom
 import * as pdfjsLib from './lib/pdf.min.mjs';
 
-const APP_VERSION = '0.1.0';
+const APP_VERSION = '0.2.0';
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
 
 const $ = (id) => document.getElementById(id);
 
 /* =========================================================
-   Datenbank (IndexedDB) – bleibt lokal auf dem iPad
-   Stores schon für spätere Schritte angelegt:
-   scores, files, songbooks, annotations
+   Datenbank (IndexedDB) – bleibt lokal auf dem Gerät
+   scores, files, songbooks, annotations (Schritt 3)
    ========================================================= */
 const DB = {
   db: null,
@@ -43,6 +42,12 @@ const DB = {
   get(store, id) { return this.run(store, 'readonly', (s) => s.get(id)); },
   put(store, obj) { return this.run(store, 'readwrite', (s) => s.put(obj)); },
   del(store, id) { return this.run(store, 'readwrite', (s) => s.delete(id)); },
+  delByIndex(store, index, value) {
+    return this.run(store, 'readwrite', (s) => {
+      const r = s.index(index).openCursor(IDBKeyRange.only(value));
+      r.onsuccess = () => { const c = r.result; if (c) { c.delete(); c.continue(); } };
+    });
+  },
 };
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
@@ -51,9 +56,10 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString
    Hilfsfunktionen
    ========================================================= */
 const collator = new Intl.Collator('de', { sensitivity: 'base', numeric: true });
+const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 function groupLetter(title) {
-  const c = (title || '').trim().charAt(0).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+  const c = norm((title || '').trim().charAt(0)).toUpperCase();
   return /[A-Z]/.test(c) ? c : '#';
 }
 function titleFromFile(name) {
@@ -67,6 +73,7 @@ function fmtBytes(b) {
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 let toastTimer;
 function toast(msg, ms = 2600) {
   const t = $('toast');
@@ -78,32 +85,70 @@ function toast(msg, ms = 2600) {
 function showView(id) {
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === id));
 }
+function confirmDlg(title, text, yes = 'Löschen') {
+  return new Promise((resolve) => {
+    const d = $('confirmDlg');
+    $('cTitle').textContent = title;
+    $('cText').textContent = text;
+    $('cYes').textContent = yes;
+    d.returnValue = '';
+    d.addEventListener('close', () => resolve(d.returnValue === 'yes'), { once: true });
+    d.showModal();
+  });
+}
 
 /* =========================================================
-   Bildschirm 1: Notensammlung
+   Daten im Speicher
    ========================================================= */
 let scores = [];
+let songbooks = [];
+const scoreById = (id) => scores.find((s) => s.id === id);
+const sortScores = () => scores.sort((a, b) => collator.compare(a.title, b.title));
+const sortSongbooks = () => songbooks.sort((a, b) => collator.compare(a.name, b.name));
+function sbItems(sb) { return sb.entries.map((en) => ({ en, s: scoreById(en.scoreId) })).filter((x) => x.s); }
+function sbPages(sb) { return sbItems(sb).reduce((n, x) => n + (x.s.pages || 0), 0); }
+async function saveSongbook(sb) { sb.updated = Date.now(); await DB.put('songbooks', sb); }
 
-async function loadScores() {
-  scores = await DB.all('scores');
-  scores.sort((a, b) => collator.compare(a.title, b.title));
-  renderList();
-  updateStorageInfo();
+/* =========================================================
+   Bildschirm 1: Sammlung mit Reitern „Noten“ und „Songbooks“
+   ========================================================= */
+let tab = localStorage.getItem('tab') === 'songbooks' ? 'songbooks' : 'scores';
+
+function setTab(t) {
+  tab = t;
+  localStorage.setItem('tab', t);
+  document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.tab === t));
+  $('btnPrimary').textContent = t === 'scores' ? '+ Importieren' : '+ Neues Songbook';
+  $('search').placeholder = t === 'scores' ? 'Suchen nach Titel, Komponist oder Tag …' : 'Songbook suchen …';
+  $('list').classList.toggle('hidden', t !== 'scores');
+  $('rail').classList.toggle('hidden', t !== 'scores');
+  $('sbList').classList.toggle('hidden', t !== 'songbooks');
+  renderLibrary();
+}
+document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
+$('btnPrimary').addEventListener('click', () => (tab === 'scores' ? $('fileInput').click() : openSbDialog(null)));
+$('search').addEventListener('input', renderLibrary);
+
+function renderLibrary() {
+  if (tab === 'scores') renderList(); else renderSongbookList();
 }
 
 function matches(s, q) {
   if (!q) return true;
-  const hay = [s.title, s.composer, ...(s.tags || [])].join(' ').toLowerCase()
-    .normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const hay = norm([s.title, s.composer, ...(s.tags || [])].join(' '));
   return q.split(/\s+/).every((w) => hay.includes(w));
 }
 
+function setEmpty(show, title, text) {
+  $('empty').classList.toggle('hidden', !show);
+  if (show) $('empty').innerHTML = `<p class="empty-title">${title}</p><p>${text}</p>`;
+}
+
 function renderList() {
-  const q = $('search').value.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  const list = $('list');
+  const q = norm($('search').value.trim());
   const visible = scores.filter((s) => matches(s, q));
-  $('count').textContent = scores.length === 1 ? '1 Stück' : `${scores.length} Stücke`;
-  $('empty').classList.toggle('hidden', scores.length > 0);
+  $('count').textContent = plural(scores.length, 'Stück', 'Stücke');
+  setEmpty(!scores.length, 'Noch keine Noten', 'Tippe auf <b>+ Importieren</b> und wähle eine oder mehrere PDF-Dateien aus.');
 
   let html = '';
   let current = null;
@@ -123,11 +168,28 @@ function renderList() {
     </div>`;
   }
   if (!visible.length && scores.length) html = `<p class="muted" style="padding:24px 4px">Nichts gefunden.</p>`;
-  list.innerHTML = html;
+  $('list').innerHTML = html;
 
-  const rail = $('rail');
   const all = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'];
-  rail.innerHTML = all.map((L) => `<button data-letter="${L}" ${letters.has(L) ? '' : 'disabled'}>${L}</button>`).join('');
+  $('rail').innerHTML = all.map((L) => `<button data-letter="${L}" ${letters.has(L) ? '' : 'disabled'}>${L}</button>`).join('');
+}
+
+function renderSongbookList() {
+  const q = norm($('search').value.trim());
+  const visible = songbooks.filter((sb) => !q || norm(sb.name).includes(q));
+  $('count').textContent = plural(songbooks.length, 'Songbook', 'Songbooks');
+  setEmpty(!songbooks.length, 'Noch keine Songbooks',
+    'Tippe auf <b>+ Neues Songbook</b>, gib ihm einen Namen und füge Stücke aus deiner Sammlung hinzu.');
+  let html = visible.map((sb) => {
+    const n = sbItems(sb).length;
+    return `<div class="row sbrow" data-sb="${sb.id}">
+      <div class="main"><div class="title">${esc(sb.name)}</div>
+      <div class="sub">${plural(n, 'Stück', 'Stücke')} · ${sbPages(sb)} S.</div></div>
+      <button class="more play" data-play="${sb.id}" aria-label="Spielen">▶</button>
+    </div>`;
+  }).join('');
+  if (!visible.length && songbooks.length) html = `<p class="muted" style="padding:24px 4px">Nichts gefunden.</p>`;
+  $('sbList').innerHTML = html;
 }
 
 $('list').addEventListener('click', (e) => {
@@ -136,13 +198,18 @@ $('list').addEventListener('click', (e) => {
   const row = e.target.closest('.row');
   if (row) openViewer(row.dataset.id);
 });
+$('sbList').addEventListener('click', (e) => {
+  const play = e.target.closest('[data-play]');
+  if (play) { const sb = songbooks.find((x) => x.id === play.dataset.play); if (sb) openSongbookPlayer(sb, 0); return; }
+  const row = e.target.closest('[data-sb]');
+  if (row) openSongbook(row.dataset.sb);
+});
 $('rail').addEventListener('click', (e) => {
   const b = e.target.closest('[data-letter]');
   if (!b || b.disabled) return;
   const el = $('grp-' + (b.dataset.letter === '#' ? 'num' : b.dataset.letter));
   if (el) el.scrollIntoView({ block: 'start' });
 });
-$('search').addEventListener('input', renderList);
 
 async function updateStorageInfo() {
   try {
@@ -156,7 +223,6 @@ async function updateStorageInfo() {
 }
 
 /* ---------- Import ---------- */
-$('btnImport').addEventListener('click', () => $('fileInput').click());
 $('fileInput').addEventListener('change', async (e) => {
   const files = [...e.target.files];
   e.target.value = '';
@@ -166,7 +232,6 @@ $('fileInput').addEventListener('change', async (e) => {
 async function importFiles(files) {
   const pdfs = files.filter((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
   if (!pdfs.length) { toast('Keine PDF-Dateien ausgewählt.'); return; }
-  // Daten dauerhaft speichern lassen (schützt vor automatischem Löschen durch Safari)
   try { await navigator.storage?.persist?.(); } catch { /* egal */ }
 
   let added = 0, skipped = 0, failed = 0;
@@ -194,8 +259,8 @@ async function importFiles(files) {
       failed++;
     }
   }
-  scores.sort((a, b) => collator.compare(a.title, b.title));
-  renderList();
+  sortScores();
+  if (tab !== 'scores') setTab('scores'); else renderList();
   updateStorageInfo();
   const parts = [`${added} importiert`];
   if (skipped) parts.push(`${skipped} schon vorhanden`);
@@ -205,7 +270,10 @@ async function importFiles(files) {
 
 // Drag & Drop am PC
 let dragDepth = 0;
-window.addEventListener('dragenter', (e) => { if ($('library').classList.contains('active')) { dragDepth++; $('dropHint').classList.remove('hidden'); e.preventDefault(); } });
+window.addEventListener('dragenter', (e) => {
+  if (!e.dataTransfer?.types?.includes('Files')) return;
+  if ($('library').classList.contains('active')) { dragDepth++; $('dropHint').classList.remove('hidden'); e.preventDefault(); }
+});
 window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('dropHint').classList.add('hidden'); } });
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => {
@@ -215,36 +283,62 @@ window.addEventListener('drop', (e) => {
   if ($('library').classList.contains('active') && e.dataTransfer?.files?.length) importFiles([...e.dataTransfer.files]);
 });
 
-/* ---------- Bearbeiten / Löschen ---------- */
+/* ---------- Stück bearbeiten / löschen / zu Songbook hinzufügen ---------- */
 let editingId = null;
 function openEdit(id) {
-  const s = scores.find((x) => x.id === id);
+  const s = scoreById(id);
   if (!s) return;
   editingId = id;
   $('fTitle').value = s.title;
   $('fComposer').value = s.composer || '';
   $('fTags').value = (s.tags || []).join(', ');
   $('fInfo').textContent = `Datei: ${s.fileName} · ${s.pages} Seiten · ${fmtBytes(s.size)}`;
+  renderEditSongbooks();
   $('editDlg').showModal();
 }
+function renderEditSongbooks() {
+  const s = scoreById(editingId);
+  const sel = $('fSongbook');
+  sel.innerHTML = songbooks.length
+    ? songbooks.map((sb) => `<option value="${sb.id}">${esc(sb.name)}</option>`).join('')
+    : '<option value="">Noch keine Songbooks</option>';
+  sel.disabled = !songbooks.length;
+  $('fAddTo').disabled = !songbooks.length;
+  const inSbs = songbooks.filter((sb) => sb.entries.some((e) => e.scoreId === s.id)).map((sb) => sb.name);
+  $('fIn').textContent = inSbs.length ? 'Enthalten in: ' + inSbs.join(', ') : 'In keinem Songbook enthalten.';
+}
+$('fAddTo').addEventListener('click', async () => {
+  const sb = songbooks.find((x) => x.id === $('fSongbook').value);
+  if (!sb) return;
+  sb.entries.push({ eid: uid(), scoreId: editingId });
+  await saveSongbook(sb);
+  renderEditSongbooks();
+  toast(`Zu „${sb.name}“ hinzugefügt`);
+});
 $('fCancel').addEventListener('click', () => $('editDlg').close());
 $('editForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const s = scores.find((x) => x.id === editingId);
+  const s = scoreById(editingId);
   if (!s) return;
   s.title = $('fTitle').value.trim() || s.title;
   s.composer = $('fComposer').value.trim();
   s.tags = $('fTags').value.split(',').map((t) => t.trim()).filter(Boolean);
   await DB.put('scores', s);
   $('editDlg').close();
-  scores.sort((a, b) => collator.compare(a.title, b.title));
+  sortScores();
   renderList();
 });
 $('fDelete').addEventListener('click', async () => {
-  const s = scores.find((x) => x.id === editingId);
+  const s = scoreById(editingId);
   if (!s) return;
-  const ok = await confirmDlg('Stück löschen?', `„${s.title}“ wird aus der Sammlung entfernt. Die Datei auf deinem PC bleibt erhalten.`);
+  const affected = songbooks.filter((sb) => sb.entries.some((e) => e.scoreId === s.id));
+  const extra = affected.length ? ` Es wird auch aus ${plural(affected.length, 'Songbook', 'Songbooks')} entfernt.` : '';
+  const ok = await confirmDlg('Stück löschen?', `„${s.title}“ wird aus der Sammlung entfernt. Die Datei auf deinem PC bleibt erhalten.${extra}`);
   if (!ok) return;
+  for (const sb of affected) {
+    sb.entries = sb.entries.filter((e) => e.scoreId !== s.id);
+    await saveSongbook(sb);
+  }
   await DB.del('scores', s.id);
   await DB.del('files', s.id);
   scores = scores.filter((x) => x.id !== s.id);
@@ -253,60 +347,315 @@ $('fDelete').addEventListener('click', async () => {
   updateStorageInfo();
   toast('Gelöscht');
 });
-function confirmDlg(title, text) {
-  return new Promise((resolve) => {
-    const d = $('confirmDlg');
-    $('cTitle').textContent = title;
-    $('cText').textContent = text;
-    d.returnValue = '';
-    d.addEventListener('close', () => resolve(d.returnValue === 'yes'), { once: true });
-    d.showModal();
-  });
-}
 
 /* =========================================================
-   Notenansicht mit Halbseiten-Blättern
-   step-Logik:
-   - normal:  step = Seitenindex (0 … n-1)
-   - halb:    gerade step 2k  -> Seite k komplett
-              ungerade 2k+1   -> oben Seite k+1, unten noch Seite k
+   Bildschirm 2: Songbook
+   Eintrag = { eid, scoreId }  – ein Verweis, keine Kopie des PDFs.
+   eid ist eindeutig, damit ein Stück auch zweimal vorkommen darf
+   und Notizen (Schritt 3) genau an diesem Eintrag hängen.
    ========================================================= */
-const V = {
-  score: null, task: null, doc: null, n: 0, step: 0, half: false,
-  cache: new Map(), // Seitenindex -> Promise<Canvas>
-  renderToken: 0, hideTimer: null,
-};
+let curSb = null;
 
-async function openViewer(id) {
-  const score = scores.find((s) => s.id === id);
-  const file = await DB.get('files', id);
-  if (!score || !file) { toast('Datei nicht gefunden.'); return; }
-  closeDoc();
-  V.score = score;
-  V.half = localStorage.getItem('halfPage') === '1';
-  $('btnHalf').classList.toggle('on', V.half);
-  $('vtitle').textContent = score.title;
-  showView('viewer');
-  try {
-    V.task = pdfjsLib.getDocument({ data: new Uint8Array(file.data) });
-    V.doc = await V.task.promise;
-  } catch (err) {
-    console.error(err);
-    toast('PDF konnte nicht geöffnet werden.');
-    showView('library');
+function openSongbook(id) {
+  curSb = songbooks.find((x) => x.id === id);
+  if (!curSb) return;
+  renderSongbook();
+  showView('songbookView');
+}
+
+function renderSongbook() {
+  const sb = curSb;
+  $('sbName').textContent = sb.name;
+  const items = sbItems(sb);
+  $('sbInfo').textContent = `${plural(items.length, 'Stück', 'Stücke')} · ${sbPages(sb)} Seiten`;
+  $('sbEmpty').classList.toggle('hidden', items.length > 0);
+  $('sbPlay').disabled = !items.length;
+  $('sbEntries').innerHTML = items.map(({ en, s }, i) => `
+    <div class="entry" data-eid="${en.eid}">
+      <span class="grip" aria-label="Verschieben">☰</span>
+      <span class="pos">${i + 1}</span>
+      <div class="main" data-playfrom="${i}">
+        <div class="title">${esc(s.title)}</div>
+        <div class="sub">${[s.composer, `${s.pages} S.`].filter(Boolean).map(esc).join(' · ')}</div>
+      </div>
+      <button class="more" data-remove="${en.eid}" aria-label="Aus Songbook entfernen">✕</button>
+    </div>`).join('');
+}
+
+$('sbBack').addEventListener('click', () => { curSb = null; setTab('songbooks'); showView('library'); });
+$('sbPlay').addEventListener('click', () => openSongbookPlayer(curSb, 0));
+$('sbAdd').addEventListener('click', openPicker);
+$('sbMore').addEventListener('click', () => openSbDialog(curSb));
+$('sbEmptyAdd').addEventListener('click', openPicker);
+
+$('sbEntries').addEventListener('click', async (e) => {
+  if (dragJustEnded) return;
+  const rm = e.target.closest('[data-remove]');
+  if (rm) {
+    const idx = curSb.entries.findIndex((x) => x.eid === rm.dataset.remove);
+    if (idx < 0) return;
+    const title = scoreById(curSb.entries[idx].scoreId)?.title || 'Stück';
+    curSb.entries.splice(idx, 1);
+    await saveSongbook(curSb);
+    renderSongbook();
+    toast(`„${title}“ entfernt – das Original bleibt in der Sammlung`);
     return;
   }
-  V.n = V.doc.numPages;
-  V.step = 0;
-  Metro.loadFor(score);
+  const pf = e.target.closest('[data-playfrom]');
+  if (pf) openSongbookPlayer(curSb, Number(pf.dataset.playfrom));
+});
+
+/* ---------- Reihenfolge per Ziehen am Griff ☰ ---------- */
+let drag = null;
+let dragJustEnded = false;
+const box = $('sbEntries');
+
+box.addEventListener('pointerdown', (e) => {
+  const grip = e.target.closest('.grip');
+  if (!grip) return;
+  e.preventDefault();
+  const row = grip.closest('.entry');
+  const r = row.getBoundingClientRect();
+  drag = { row, id: e.pointerId, grab: e.clientY - r.top, y: e.clientY, scrollTimer: null };
+  row.setPointerCapture(e.pointerId);
+  row.classList.add('dragging');
+  drag.scrollTimer = setInterval(autoScroll, 30);
+});
+box.addEventListener('pointermove', (e) => {
+  if (!drag || e.pointerId !== drag.id) return;
+  drag.y = e.clientY;
+  placeDragged();
+});
+function placeDragged() {
+  const { row } = drag;
+  row.style.transform = '';
+  let r = row.getBoundingClientRect();
+  const center = drag.y - drag.grab + r.height / 2;
+  let prev = row.previousElementSibling;
+  while (prev && center < prev.getBoundingClientRect().top + prev.offsetHeight / 2) {
+    box.insertBefore(row, prev);
+    prev = row.previousElementSibling;
+  }
+  let next = row.nextElementSibling;
+  while (next && center > next.getBoundingClientRect().top + next.offsetHeight / 2) {
+    box.insertBefore(row, next.nextElementSibling);
+    next = row.nextElementSibling;
+  }
+  r = row.getBoundingClientRect();
+  row.style.transform = `translateY(${drag.y - drag.grab - r.top}px)`;
+  [...box.children].forEach((el, i) => { const p = el.querySelector('.pos'); if (p) p.textContent = i + 1; });
+}
+function autoScroll() {
+  if (!drag) return;
+  const b = box.getBoundingClientRect();
+  const edge = 70;
+  let dy = 0;
+  if (drag.y < b.top + edge) dy = -Math.ceil((b.top + edge - drag.y) / 6);
+  else if (drag.y > b.bottom - edge) dy = Math.ceil((drag.y - (b.bottom - edge)) / 6);
+  if (dy) { box.scrollTop += dy; placeDragged(); }
+}
+async function endDrag(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  clearInterval(drag.scrollTimer);
+  drag.row.classList.remove('dragging');
+  drag.row.style.transform = '';
+  drag = null;
+  dragJustEnded = true;
+  setTimeout(() => { dragJustEnded = false; }, 50);
+  const order = [...box.querySelectorAll('.entry')].map((el) => el.dataset.eid);
+  const byEid = new Map(curSb.entries.map((en) => [en.eid, en]));
+  const changed = order.some((eid, i) => sbItems(curSb)[i]?.en.eid !== eid);
+  if (!changed) { renderSongbook(); return; }
+  // Einträge ohne vorhandenes Stück (sollte nicht vorkommen) hinten behalten
+  const rest = curSb.entries.filter((en) => !order.includes(en.eid));
+  curSb.entries = [...order.map((eid) => byEid.get(eid)), ...rest];
+  await saveSongbook(curSb);
+  renderSongbook();
+}
+box.addEventListener('pointerup', endDrag);
+box.addEventListener('pointercancel', endDrag);
+
+/* ---------- Stücke auswählen ---------- */
+let pickSel = [];
+function openPicker() {
+  if (!scores.length) { toast('Importiere zuerst Noten in die Sammlung.'); return; }
+  pickSel = [];
+  $('pickSearch').value = '';
+  renderPick();
+  $('pickDlg').showModal();
+}
+function renderPick() {
+  const q = norm($('pickSearch').value.trim());
+  const inSb = new Set(curSb.entries.map((e) => e.scoreId));
+  const list = $('pickList');
+  const top = list.scrollTop;
+  list.innerHTML = scores.filter((s) => matches(s, q)).map((s) => {
+    const k = pickSel.indexOf(s.id);
+    const sub = [s.composer, `${s.pages} S.`].filter(Boolean).map(esc).join(' · ');
+    return `<div class="pick ${k >= 0 ? 'sel' : ''}" data-id="${s.id}">
+      <span class="check">${k >= 0 ? k + 1 : ''}</span>
+      <div class="main"><div class="title">${esc(s.title)}</div>
+      <div class="sub">${sub}${inSb.has(s.id) ? ' · <b>schon im Songbook</b>' : ''}</div></div>
+    </div>`;
+  }).join('') || '<p class="muted">Nichts gefunden.</p>';
+  list.scrollTop = top;
+  $('pickCount').textContent = pickSel.length ? `${pickSel.length} ausgewählt` : 'Reihenfolge = Antipp-Reihenfolge';
+  $('pickOk').disabled = !pickSel.length;
+}
+$('pickList').addEventListener('click', (e) => {
+  const p = e.target.closest('.pick');
+  if (!p) return;
+  const k = pickSel.indexOf(p.dataset.id);
+  if (k >= 0) pickSel.splice(k, 1); else pickSel.push(p.dataset.id);
+  renderPick();
+});
+$('pickSearch').addEventListener('input', renderPick);
+$('pickCancel').addEventListener('click', () => $('pickDlg').close());
+$('pickOk').addEventListener('click', async () => {
+  for (const id of pickSel) curSb.entries.push({ eid: uid(), scoreId: id });
+  await saveSongbook(curSb);
+  $('pickDlg').close();
+  renderSongbook();
+  toast(`${plural(pickSel.length, 'Stück', 'Stücke')} hinzugefügt`);
+});
+
+/* ---------- Songbook anlegen / umbenennen / duplizieren / löschen ---------- */
+let sbEditing = null; // null = neu
+function openSbDialog(sb) {
+  sbEditing = sb;
+  $('sbDlgTitle').textContent = sb ? 'Songbook' : 'Neues Songbook';
+  $('sbFName').value = sb ? sb.name : '';
+  $('sbFDelete').classList.toggle('hidden', !sb);
+  $('sbFDup').classList.toggle('hidden', !sb);
+  $('sbDlg').showModal();
+  setTimeout(() => $('sbFName').focus(), 50);
+}
+$('sbFCancel').addEventListener('click', () => $('sbDlg').close());
+$('sbForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const name = $('sbFName').value.trim();
+  if (!name) return;
+  $('sbDlg').close();
+  if (sbEditing) {
+    sbEditing.name = name;
+    await saveSongbook(sbEditing);
+    sortSongbooks();
+    renderSongbook();
+  } else {
+    const sb = { id: uid(), name, entries: [], created: Date.now(), updated: Date.now() };
+    await DB.put('songbooks', sb);
+    songbooks.push(sb);
+    sortSongbooks();
+    openSongbook(sb.id);
+  }
+});
+$('sbFDup').addEventListener('click', async () => {
+  const src = sbEditing;
+  $('sbDlg').close();
+  const copy = {
+    id: uid(), name: src.name + ' (Kopie)', created: Date.now(), updated: Date.now(),
+    entries: src.entries.map((en) => ({ eid: uid(), scoreId: en.scoreId, copiedFrom: en.eid })),
+  };
+  await DB.put('songbooks', copy);
+  songbooks.push(copy);
+  sortSongbooks();
+  openSongbook(copy.id);
+  toast('Songbook dupliziert');
+});
+$('sbFDelete').addEventListener('click', async () => {
+  const sb = sbEditing;
+  $('sbDlg').close();
+  const ok = await confirmDlg('Songbook löschen?',
+    `„${sb.name}“ und seine Notizen werden gelöscht. Die Noten bleiben in der Sammlung.`);
+  if (!ok) return;
+  await DB.del('songbooks', sb.id);
+  await DB.delByIndex('annotations', 'songbookId', sb.id);
+  songbooks = songbooks.filter((x) => x.id !== sb.id);
+  curSb = null;
+  setTab('songbooks');
+  showView('library');
+  toast('Songbook gelöscht');
+});
+
+/* =========================================================
+   Bildschirm 3: Notenansicht
+   Alle Seiten aller Stücke werden zu einer Folge „seq“ verkettet:
+   seq[i] = { e: Eintrag-Nr., scoreId, page }
+   step-Logik:
+   - normal:  step = Index in seq
+   - halb:    gerade step 2k  -> seq[k] komplett
+              ungerade 2k+1   -> oben seq[k+1], unten noch seq[k]
+   ========================================================= */
+const V = {
+  title: '', songbook: null, entries: [], seq: [], entryStart: [], n: 0, step: 0, half: false,
+  docs: new Map(),  // scoreId -> { task, promise }
+  cache: new Map(), // seq-Index -> Promise<Canvas>
+  curEntry: -1, renderToken: 0, hideTimer: null,
+};
+
+function openViewer(scoreId) {
+  const s = scoreById(scoreId);
+  if (!s) return;
+  startPlayback({ title: s.title, songbook: null, entries: [{ eid: 'single', scoreId }] }, 0);
+}
+function openSongbookPlayer(sb, startEntry) {
+  const entries = sbItems(sb).map((x) => x.en);
+  if (!entries.length) { toast('Das Songbook ist noch leer.'); return; }
+  startPlayback({ title: sb.name, songbook: sb, entries }, startEntry);
+}
+
+function startPlayback(opts, startEntry) {
+  closeDocs();
+  V.title = opts.title;
+  V.songbook = opts.songbook;
+  V.entries = opts.entries;
+  V.seq = [];
+  V.entryStart = [];
+  V.entries.forEach((en, e) => {
+    const s = scoreById(en.scoreId);
+    V.entryStart.push(V.seq.length);
+    for (let p = 0; p < (s.pages || 1); p++) V.seq.push({ e, scoreId: s.id, page: p });
+  });
+  V.n = V.seq.length;
+  V.half = localStorage.getItem('halfPage') === '1';
+  V.curEntry = -1;
+  $('btnHalf').classList.toggle('on', V.half);
+  $('btnToc').classList.toggle('hidden', !V.songbook);
+  $('btnBack').textContent = V.songbook ? '‹ Songbook' : '‹ Sammlung';
+  showView('viewer');
+  goToSeq(V.entryStart[startEntry] || 0);
   showChrome(true);
+}
+
+function goToSeq(i) {
+  V.step = V.half ? 2 * i : i;
+  V.step = Math.min(V.step, maxStep());
   draw();
 }
 
-function closeDoc() {
+function getDoc(scoreId) {
+  if (V.docs.has(scoreId)) return V.docs.get(scoreId).promise;
+  const d = { task: null };
+  d.promise = (async () => {
+    const file = await DB.get('files', scoreId);
+    if (!file) throw new Error('Datei fehlt');
+    d.task = pdfjsLib.getDocument({ data: new Uint8Array(file.data) });
+    return d.task.promise;
+  })();
+  V.docs.set(scoreId, d);
+  return d.promise;
+}
+function closeDocs() {
   V.cache.clear();
-  if (V.task) { V.task.destroy(); V.task = null; }
-  V.doc = null;
+  for (const d of V.docs.values()) d.task?.destroy();
+  V.docs.clear();
+}
+// Nur die PDFs rund um die aktuelle Seite offen halten (spart Speicher bei langen Songbooks)
+function trimAround(i) {
+  for (const k of V.cache.keys()) if (Math.abs(k - i) > 3) V.cache.delete(k);
+  const keep = new Set();
+  for (let k = Math.max(0, i - 3); k <= Math.min(V.n - 1, i + 3); k++) keep.add(V.seq[k].scoreId);
+  for (const [id, d] of V.docs) if (!keep.has(id)) { d.task?.destroy(); V.docs.delete(id); }
 }
 
 function maxStep() { return V.half ? Math.max(0, 2 * V.n - 2) : V.n - 1; }
@@ -319,8 +668,10 @@ function stageSize() {
 // Seite als Canvas rendern, passend (contain) in die Bühne
 function pageCanvas(i) {
   if (V.cache.has(i)) return V.cache.get(i);
+  const it = V.seq[i];
   const p = (async () => {
-    const page = await V.doc.getPage(i + 1);
+    const doc = await getDoc(it.scoreId);
+    const page = await doc.getPage(it.page + 1);
     const { w, h, dpr } = stageSize();
     const vp1 = page.getViewport({ scale: 1 });
     const scale = Math.min(w / vp1.width, h / vp1.height);
@@ -334,27 +685,33 @@ function pageCanvas(i) {
     await page.render({ canvasContext: ctx, viewport: vp }).promise;
     return c;
   })();
+  p.catch(() => { if (V.cache.get(i) === p) V.cache.delete(i); });
   V.cache.set(i, p);
   return p;
 }
 
-function trimCache(keep) {
-  for (const k of V.cache.keys()) if (Math.abs(k - keep) > 3) V.cache.delete(k);
-}
-
 async function draw() {
-  if (!V.doc) return;
+  if (!V.n) return;
   const token = ++V.renderToken;
   const { w, h, dpr } = stageSize();
   const canvas = $('canvas');
   const W = Math.floor(w * dpr), H = Math.floor(h * dpr);
 
-  let top, bottom; // Seitenindizes
+  let top, bottom; // seq-Indizes
   if (!V.half) { top = bottom = V.step; }
   else if (V.step % 2 === 0) { top = bottom = V.step / 2; }
   else { bottom = (V.step - 1) / 2; top = bottom + 1; }
 
-  const [cTop, cBottom] = await Promise.all([pageCanvas(top), pageCanvas(bottom)]);
+  onEntry(V.seq[top].e);
+
+  let cTop, cBottom;
+  try {
+    [cTop, cBottom] = await Promise.all([pageCanvas(top), pageCanvas(bottom)]);
+  } catch (err) {
+    console.error(err);
+    if (token === V.renderToken) toast('Seite konnte nicht angezeigt werden.');
+    return;
+  }
   if (token !== V.renderToken) return;
 
   if (canvas.width !== W || canvas.height !== H) {
@@ -371,36 +728,48 @@ async function draw() {
     ctx.drawImage(cTop, p.x, p.y);
   } else {
     const mid = Math.round(H / 2);
-    // untere Hälfte: aktuelle Seite
     ctx.save(); ctx.beginPath(); ctx.rect(0, mid, W, H - mid); ctx.clip();
     const pb = place(cBottom); ctx.drawImage(cBottom, pb.x, pb.y); ctx.restore();
-    // obere Hälfte: schon die nächste Seite
     ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, mid); ctx.clip();
     const pt = place(cTop); ctx.drawImage(cTop, pt.x, pt.y); ctx.restore();
-    // Trennlinie
     ctx.fillStyle = '#D9A04A';
     ctx.fillRect(0, mid - Math.round(2 * dpr), W, Math.round(4 * dpr));
   }
   updatePageInfo(top, bottom);
 
-  // Nachbarseiten vorbereiten
-  trimCache(top);
-  if (top + 1 < V.n) pageCanvas(top + 1);
-  if (top + 2 < V.n) pageCanvas(top + 2);
+  trimAround(top);
+  if (top + 1 < V.n) pageCanvas(top + 1).catch(() => {});
+  if (top + 2 < V.n) pageCanvas(top + 2).catch(() => {});
+}
+
+// Neues Stück im Songbook erreicht
+function onEntry(e) {
+  if (e === V.curEntry) return;
+  V.curEntry = e;
+  const s = scoreById(V.entries[e].scoreId);
+  $('vtitle').textContent = V.songbook ? `${s.title}` : s.title;
+  if (!Metro.running) Metro.loadFor(s);
+  else Metro.score = s; // läuft weiter im aktuellen Tempo
 }
 
 function updatePageInfo(top, bottom) {
-  const info = top === bottom
-    ? `Seite ${top + 1} von ${V.n}`
-    : `oben Seite ${top + 1} · unten Seite ${bottom + 1} · von ${V.n}`;
-  $('pageInfo').textContent = info;
+  const t = V.seq[top], b = V.seq[bottom];
+  const sT = scoreById(t.scoreId), sB = scoreById(b.scoreId);
+  const multi = !!V.songbook;
+  const piece = multi ? `Stück ${t.e + 1}/${V.entries.length} · ` : '';
+  let txt;
+  if (top === bottom) txt = `${piece}Seite ${t.page + 1} von ${sT.pages}`;
+  else if (t.e === b.e) txt = `${piece}oben S. ${t.page + 1} · unten S. ${b.page + 1} · von ${sT.pages}`;
+  else txt = `oben: ${sT.title} S. ${t.page + 1} · unten: ${sB.title} S. ${b.page + 1}`;
+  if (multi) txt = `${V.title} · ${txt}`;
+  $('pageInfo').textContent = txt;
 }
 
 function go(delta) {
-  if (!V.doc) return;
+  if (!V.n) return;
   const next = Math.min(maxStep(), Math.max(0, V.step + delta));
   if (next === V.step) {
-    if (delta > 0) toast('Letzte Seite', 1200);
+    if (delta > 0) toast(V.songbook ? 'Ende des Songbooks' : 'Letzte Seite', 1200);
     return;
   }
   V.step = next;
@@ -409,8 +778,8 @@ function go(delta) {
 
 function setHalf(on) {
   if (V.half === on) return;
-  if (on) V.step = V.step * 2; // Seite k -> step 2k
-  else V.step = Math.ceil(V.step / 2); // halb: zeige die obere (neue) Seite
+  if (on) V.step = V.step * 2;
+  else V.step = Math.ceil(V.step / 2);
   V.half = on;
   V.step = Math.min(V.step, maxStep());
   localStorage.setItem('halfPage', on ? '1' : '0');
@@ -418,6 +787,26 @@ function setHalf(on) {
   toast(on ? 'Halbe Seiten blättern: an' : 'Halbe Seiten blättern: aus', 1500);
   draw();
 }
+
+/* ---------- Inhaltsverzeichnis im Songbook ---------- */
+$('btnToc').addEventListener('click', () => {
+  $('tocTitle').textContent = V.title;
+  $('tocList').innerHTML = V.entries.map((en, i) => {
+    const s = scoreById(en.scoreId);
+    return `<div class="pick ${i === V.curEntry ? 'sel' : ''}" data-entry="${i}">
+      <span class="check">${i + 1}</span>
+      <div class="main"><div class="title">${esc(s.title)}</div>
+      <div class="sub">${[s.composer, `${s.pages} S.`].filter(Boolean).map(esc).join(' · ')}</div></div>
+    </div>`;
+  }).join('');
+  $('tocDlg').showModal();
+});
+$('tocList').addEventListener('click', (e) => {
+  const p = e.target.closest('[data-entry]');
+  if (!p) return;
+  $('tocDlg').close();
+  goToSeq(V.entryStart[Number(p.dataset.entry)]);
+});
 
 /* ---------- Bedienleisten ---------- */
 function showChrome(autoHide) {
@@ -435,8 +824,10 @@ function toggleChrome() {
 $('btnBack').addEventListener('click', () => {
   Metro.stop();
   $('metro').classList.add('hidden');
-  closeDoc();
-  showView('library');
+  closeDocs();
+  V.n = 0;
+  if (V.songbook && songbooks.includes(V.songbook)) { curSb = V.songbook; renderSongbook(); showView('songbookView'); }
+  else { renderLibrary(); showView('library'); }
 });
 $('btnHalf').addEventListener('click', () => setHalf(!V.half));
 
@@ -467,6 +858,7 @@ $('stage').addEventListener('pointercancel', () => { ptr = null; });
 /* ---------- Tastatur / Bluetooth-Fußpedal ---------- */
 document.addEventListener('keydown', (e) => {
   if (!$('viewer').classList.contains('active')) return;
+  if (document.querySelector('dialog[open]')) return;
   if (e.target.closest && e.target.closest('input, select, textarea')) return;
   const nextKeys = ['ArrowRight', 'ArrowDown', 'PageDown', ' ', 'Enter'];
   const prevKeys = ['ArrowLeft', 'ArrowUp', 'PageUp', 'Backspace'];
@@ -479,7 +871,7 @@ document.addEventListener('keydown', (e) => {
 let resizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { if (V.doc) { V.cache.clear(); draw(); } }, 150);
+  resizeTimer = setTimeout(() => { if (V.n) { V.cache.clear(); draw(); } }, 150);
 });
 
 /* =========================================================
@@ -505,11 +897,12 @@ const Metro = {
   },
   save() {
     clearTimeout(this.saveTimer);
+    const score = this.score;
     this.saveTimer = setTimeout(() => {
       localStorage.setItem('lastBpm', this.bpm);
-      if (this.score) {
-        this.score.tempo = { bpm: this.bpm, beats: this.beats };
-        DB.put('scores', this.score);
+      if (score) {
+        score.tempo = { bpm: this.bpm, beats: this.beats };
+        DB.put('scores', score);
       }
     }, 600);
   },
@@ -619,7 +1012,12 @@ async function init() {
     toast('Speicher konnte nicht geöffnet werden.', 8000);
     return;
   }
-  await loadScores();
+  scores = await DB.all('scores');
+  songbooks = await DB.all('songbooks');
+  sortScores();
+  sortSongbooks();
+  setTab(tab);
+  updateStorageInfo();
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('Service Worker:', err));
   }
@@ -627,4 +1025,7 @@ async function init() {
 init();
 
 // Für automatische Tests
-window.__ns = { DB, V, Metro, importFiles, openViewer, go, setHalf, get scores() { return scores; } };
+window.__ns = {
+  DB, V, Metro, importFiles, openViewer, openSongbookPlayer, go, setHalf,
+  get scores() { return scores; }, get songbooks() { return songbooks; }, get curSb() { return curSb; },
+};

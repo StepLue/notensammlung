@@ -1,4 +1,4 @@
-# Notensammlung – Anleitung (Version 0.1.0, Schritt 1)
+# Notensammlung – Anleitung (Version 0.2.0, Schritt 2)
 
 ## Einmalig: App auf GitHub Pages veröffentlichen (am PC)
 
@@ -36,6 +36,13 @@ Achtung: Der Speicher am PC ist getrennt vom iPad. Was du am PC importierst, ist
 | Halbe Seiten | **½ Seite**: Oben steht schon die nächste Seite, unten noch die aktuelle |
 | Fußpedal | Wird wie eine Tastatur erkannt (Pfeiltasten, Bild↑/↓, Leertaste) |
 | Metronom | **♩ Metronom**: Tempo, Takt, Tap-Tempo. Das Tempo wird pro Stück gespeichert |
+| Songbook anlegen | Reiter **Songbooks** → **+ Neues Songbook** → Name eingeben |
+| Stücke ins Songbook | **+ Stücke** → antippen (die Nummern zeigen die Reihenfolge) → **Hinzufügen**. Alternativ in der Notenliste über **⋯** → „Zu Songbook hinzufügen“ |
+| Reihenfolge ändern | Am Griff **☰** festhalten und ziehen |
+| Stück entfernen | **✕**: nur aus dem Songbook, das Original bleibt in der Sammlung |
+| Songbook spielen | **▶ Spielen**, oder ein Stück antippen, um ab dort zu spielen. Es wird durch alle Stücke hindurch geblättert |
+| Springen im Songbook | Beim Spielen **☰ Inhalt** → Stück antippen |
+| Umbenennen, Duplizieren, Löschen | Im Songbook auf **⋯** |
 
 **Tipp zum Fußpedal:** Solange das Pedal verbunden ist, blendet das iPad die Bildschirmtastatur aus, weil es das Pedal für eine Tastatur hält. Zum Eintippen von Titeln das Pedal kurz ausschalten.
 
@@ -46,7 +53,7 @@ Auf dem iPad die App zweimal schließen und öffnen. Dann ist die neue Version a
 
 ## Nächste Schritte
 
-- Schritt 2: Songbooks (anlegen, Stücke hinzufügen, Reihenfolge verschieben, durchspielen)
+- ✓ Schritt 2: Songbooks
 - Schritt 3: Pencil-Notizen pro Songbook
 - Schritt 4: Backup, Export als PDF
 
