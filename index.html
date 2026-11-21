@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Notensammlung">
+<meta name="theme-color" content="#1F1D2B">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+<title>Notensammlung</title>
+</head>
+<body>
+
+<!-- ============ Bildschirm 1: Notensammlung ============ -->
+<section id="library" class="view active">
+  <header class="topbar">
+    <h1>Notensammlung</h1>
+    <div class="actions">
+      <span id="count" class="muted"></span>
+      <button id="btnImport" class="btn primary">+ Importieren</button>
+    </div>
+  </header>
+  <div class="searchbar">
+    <input id="search" type="search" placeholder="Suchen nach Titel, Komponist oder Tag …" autocomplete="off" autocorrect="off" spellcheck="false">
+  </div>
+  <div class="libbody">
+    <div id="list" class="list"></div>
+    <nav id="rail" class="rail" aria-label="Register A–Z"></nav>
+  </div>
+  <div id="empty" class="empty hidden">
+    <p class="empty-title">Noch keine Noten</p>
+    <p>Tippe auf <b>+ Importieren</b> und wähle eine oder mehrere PDF-Dateien aus.</p>
+  </div>
+  <div id="dropHint" class="drophint hidden">PDFs hier ablegen</div>
+  <footer class="libfoot">
+    <span id="storage" class="muted"></span>
+    <span class="muted" id="version"></span>
+  </footer>
+  <input id="fileInput" type="file" accept="application/pdf,.pdf" multiple hidden>
+</section>
+
+<!-- ============ Bildschirm 3 (Vorschau): Notenansicht ============ -->
+<section id="viewer" class="view">
+  <div id="stage" class="stage">
+    <canvas id="canvas"></canvas>
+  </div>
+
+  <div id="vtop" class="vbar top">
+    <button id="btnBack" class="btn ghost">‹ Sammlung</button>
+    <div id="vtitle" class="vtitle"></div>
+    <div class="vactions">
+      <button id="btnHalf" class="btn toggle" title="Halbe Seiten blättern">½ Seite</button>
+      <button id="btnMetro" class="btn toggle" title="Metronom">♩ Metronom</button>
+    </div>
+  </div>
+  <div id="vbottom" class="vbar bottom">
+    <span id="pageInfo"></span>
+  </div>
+  <div id="beatDot" class="beatdot hidden"></div>
+
+  <!-- Metronom -->
+  <div id="metro" class="metro hidden" role="dialog" aria-label="Metronom">
+    <div class="metro-head">
+      <span class="metro-title">Metronom</span>
+      <button id="metroClose" class="btn ghost small">Schließen</button>
+    </div>
+    <div class="metro-bpm">
+      <button id="bpmMinus" class="btn round">−</button>
+      <div class="bpm-display"><span id="bpmValue">100</span><small>BPM</small></div>
+      <button id="bpmPlus" class="btn round">+</button>
+    </div>
+    <input id="bpmSlider" type="range" min="30" max="240" value="100">
+    <div class="metro-row">
+      <label>Takt
+        <select id="beatsSelect">
+          <option value="1">ohne Betonung</option>
+          <option value="2">2/4</option>
+          <option value="3">3/4</option>
+          <option value="4" selected>4/4</option>
+          <option value="5">5/4</option>
+          <option value="6">6/8</option>
+          <option value="7">7/8</option>
+          <option value="9">9/8</option>
+          <option value="12">12/8</option>
+        </select>
+      </label>
+      <button id="btnTap" class="btn">Tap</button>
+    </div>
+    <div id="beatRow" class="beatrow"></div>
+    <button id="metroStart" class="btn primary wide">Start</button>
+    <p class="muted small">Das Tempo wird für jedes Stück gespeichert.</p>
+  </div>
+</section>
+
+<!-- ============ Dialoge ============ -->
+<dialog id="editDlg">
+  <form method="dialog" id="editForm">
+    <h2>Stück bearbeiten</h2>
+    <label>Titel <input id="fTitle" required></label>
+    <label>Komponist / Arrangeur <input id="fComposer"></label>
+    <label>Tags <input id="fTags" placeholder="z. B. Posaune, Polka, Weihnachten"></label>
+    <p class="muted small" id="fInfo"></p>
+    <div class="dlg-actions">
+      <button type="button" id="fDelete" class="btn danger">Löschen</button>
+      <span class="spacer"></span>
+      <button type="button" id="fCancel" class="btn">Abbrechen</button>
+      <button type="submit" id="fSave" class="btn primary">Speichern</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="confirmDlg">
+  <form method="dialog">
+    <h2 id="cTitle">Sicher?</h2>
+    <p id="cText"></p>
+    <div class="dlg-actions">
+      <span class="spacer"></span>
+      <button value="no" class="btn">Abbrechen</button>
+      <button value="yes" class="btn danger">Löschen</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast"></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
