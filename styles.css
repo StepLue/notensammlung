@@ -173,3 +173,14 @@ dialog.tall form { display: flex; flex-direction: column; height: 100%; }
 .addto p { margin: 6px 0 0; }
 .dlg-actions.wrap { flex-wrap: wrap; }
 .btn:disabled { opacity: 0.45; }
+
+/* ---------- Metronom minimiert ---------- */
+.metro-headbtns { display: flex; gap: 4px; }
+.metromini { position: absolute; right: calc(16px + var(--safe-r)); bottom: calc(16px + var(--safe-b)); z-index: 6;
+  border: 0; border-radius: 999px; background: rgba(31,29,43,0.85); padding: 12px 16px; transition: bottom .2s; }
+.metromini .beatrow { min-height: 0; gap: 10px; flex-wrap: nowrap; }
+.metromini .beatrow i { width: 20px; height: 20px; background: #4A4766; }
+.metromini .beatrow i.on { background: var(--brass); }
+.metromini .beatrow i.on.accent { background: var(--red); }
+#viewer:not(.chrome-hidden) .metromini, #viewer:not(.chrome-hidden) .beatdot { bottom: calc(64px + var(--safe-b)); }
+.beatdot { transition: bottom .2s; }

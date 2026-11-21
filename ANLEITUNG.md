@@ -1,4 +1,4 @@
-# Notensammlung – Anleitung (Version 0.2.0, Schritt 2)
+# Notensammlung – Anleitung (Version 0.2.1, Schritt 2)
 
 ## Einmalig: App auf GitHub Pages veröffentlichen (am PC)
 
@@ -36,6 +36,7 @@ Achtung: Der Speicher am PC ist getrennt vom iPad. Was du am PC importierst, ist
 | Halbe Seiten | **½ Seite**: Oben steht schon die nächste Seite, unten noch die aktuelle |
 | Fußpedal | Wird wie eine Tastatur erkannt (Pfeiltasten, Bild↑/↓, Leertaste) |
 | Metronom | **♩ Metronom**: Tempo, Takt, Tap-Tempo. Das Tempo wird pro Stück gespeichert |
+| Metronom minimieren | Im Metronom auf **Minimieren**: Unten rechts bleiben nur die Schlagpunkte. Ein Tipp darauf öffnet es wieder |
 | Songbook anlegen | Reiter **Songbooks** → **+ Neues Songbook** → Name eingeben |
 | Stücke ins Songbook | **+ Stücke** → antippen (die Nummern zeigen die Reihenfolge) → **Hinzufügen**. Alternativ in der Notenliste über **⋯** → „Zu Songbook hinzufügen“ |
 | Reihenfolge ändern | Am Griff **☰** festhalten und ziehen |

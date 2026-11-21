@@ -88,12 +88,16 @@
     <span id="pageInfo"></span>
   </div>
   <div id="beatDot" class="beatdot hidden"></div>
+  <button id="metroMini" class="metromini hidden" aria-label="Metronom öffnen"><span id="miniBeats" class="beatrow"></span></button>
 
   <!-- Metronom -->
   <div id="metro" class="metro hidden" role="dialog" aria-label="Metronom">
     <div class="metro-head">
       <span class="metro-title">Metronom</span>
-      <button id="metroClose" class="btn ghost small">Schließen</button>
+      <div class="metro-headbtns">
+        <button id="metroMin" class="btn ghost small" title="Nur die Schlagpunkte anzeigen">Minimieren</button>
+        <button id="metroClose" class="btn ghost small">Schließen</button>
+      </div>
     </div>
     <div class="metro-bpm">
       <button id="bpmMinus" class="btn round">−</button>

@@ -1,7 +1,7 @@
 // Notensammlung – Schritt 2: Sammlung, Songbooks, Anzeige, Halbseiten-Blättern, Fußpedal, Metronom
 import * as pdfjsLib from './lib/pdf.min.mjs';
 
-const APP_VERSION = '0.2.0';
+const APP_VERSION = '0.2.1';
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
 
 const $ = (id) => document.getElementById(id);
@@ -823,7 +823,7 @@ function toggleChrome() {
 
 $('btnBack').addEventListener('click', () => {
   Metro.stop();
-  $('metro').classList.add('hidden');
+  setMetroView('closed');
   closeDocs();
   V.n = 0;
   if (V.songbook && songbooks.includes(V.songbook)) { curSb = V.songbook; renderSongbook(); showView('songbookView'); }
@@ -878,7 +878,7 @@ window.addEventListener('resize', () => {
    Metronom (Web Audio, exaktes Timing mit Vorausplanung)
    ========================================================= */
 const Metro = {
-  ctx: null, bpm: 100, beats: 4, running: false, nextTime: 0, beat: 0, timer: null,
+  ctx: null, bpm: 100, beats: 4, running: false, mini: false, nextTime: 0, beat: 0, timer: null,
   taps: [], saveTimer: null, score: null,
 
   loadFor(score) {
@@ -915,7 +915,7 @@ const Metro = {
     this.timer = setInterval(() => this.schedule(), 25);
     $('metroStart').textContent = 'Stopp';
     $('btnMetro').classList.add('on');
-    $('beatDot').classList.remove('hidden');
+    $('beatDot').classList.toggle('hidden', this.mini);
   },
   stop() {
     this.running = false;
@@ -960,8 +960,10 @@ const Metro = {
   },
   renderBeats(active) {
     const n = this.beats > 1 ? this.beats : 1;
-    $('beatRow').innerHTML = Array.from({ length: n }, (_, i) =>
+    const html = Array.from({ length: n }, (_, i) =>
       `<i class="${i === active ? 'on' : ''} ${i === 0 && this.beats > 1 ? 'accent' : ''}"></i>`).join('');
+    $('beatRow').innerHTML = html;
+    $('miniBeats').innerHTML = html;
   },
   tap() {
     const now = performance.now();
@@ -977,17 +979,19 @@ const Metro = {
   },
 };
 
-$('btnMetro').addEventListener('click', () => {
-  const panel = $('metro');
-  panel.classList.toggle('hidden');
-  $('btnMetro').classList.toggle('on', !panel.classList.contains('hidden') || Metro.running);
-  showChrome(false);
-});
-$('metroClose').addEventListener('click', () => {
-  $('metro').classList.add('hidden');
-  $('btnMetro').classList.toggle('on', Metro.running);
-  showChrome(true);
-});
+// Metronom-Fenster: offen / minimiert (nur Schlagpunkte) / zu
+function setMetroView(state) { // 'open' | 'mini' | 'closed'
+  Metro.mini = state === 'mini';
+  $('metro').classList.toggle('hidden', state !== 'open');
+  $('metroMini').classList.toggle('hidden', state !== 'mini');
+  $('beatDot').classList.toggle('hidden', !(Metro.running && state !== 'mini'));
+  $('btnMetro').classList.toggle('on', state !== 'closed' || Metro.running);
+  if (state === 'open') showChrome(false); else showChrome(true);
+}
+$('btnMetro').addEventListener('click', () => setMetroView($('metro').classList.contains('hidden') ? 'open' : 'closed'));
+$('metroClose').addEventListener('click', () => setMetroView('closed'));
+$('metroMin').addEventListener('click', () => setMetroView('mini'));
+$('metroMini').addEventListener('click', () => setMetroView('open'));
 $('metroStart').addEventListener('click', () => (Metro.running ? Metro.stop() : Metro.start()));
 $('bpmMinus').addEventListener('click', () => Metro.setBpm(Metro.bpm - 1));
 $('bpmPlus').addEventListener('click', () => Metro.setBpm(Metro.bpm + 1));
