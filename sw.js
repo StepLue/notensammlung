@@ -1,6 +1,6 @@
 // Service Worker: macht die App offline nutzbar.
 // Bei jeder neuen Version die Nummer erhöhen, damit das iPad die neuen Dateien holt.
-const CACHE = 'notensammlung-v0.3.0';
+const CACHE = 'notensammlung-v0.3.1';
 const FILES = [
   './',
   './index.html',

@@ -1,4 +1,4 @@
-# Notensammlung – Anleitung (Version 0.3.0, Schritt 3)
+# Notensammlung – Anleitung (Version 0.3.1, Schritt 3)
 
 ## Einmalig: App auf GitHub Pages veröffentlichen (am PC)
 
@@ -33,6 +33,7 @@ Achtung: Der Speicher am PC ist getrennt vom iPad. Was du am PC importierst, ist
 | Suchen | Suchfeld: Titel, Komponist oder Tag |
 | Blättern | rechts tippen = vor, links tippen = zurück, oder wischen |
 | Leisten ein-/ausblenden | in die Mitte tippen |
+| Bildschirm bleibt an | Solange Noten angezeigt werden, schaltet sich der Bildschirm nicht ab. Nach **‹ Zurück** gilt wieder die normale Auto-Sperre |
 | Halbe Seiten | **½ Seite**: Oben steht schon die nächste Seite, unten noch die aktuelle |
 | Fußpedal | Wird wie eine Tastatur erkannt (Pfeiltasten, Bild↑/↓, Leertaste) |
 | Metronom | **♩ Metronom**: Tempo, Takt, Tap-Tempo. Das Tempo wird pro Stück gespeichert |

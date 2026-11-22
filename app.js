@@ -1,7 +1,7 @@
 // Notensammlung – Schritt 2: Sammlung, Songbooks, Anzeige, Halbseiten-Blättern, Fußpedal, Metronom
 import * as pdfjsLib from './lib/pdf.min.mjs';
 
-const APP_VERSION = '0.3.0';
+const APP_VERSION = '0.3.1';
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('./lib/pdf.worker.min.mjs', import.meta.url).href;
 
 const $ = (id) => document.getElementById(id);
@@ -616,6 +616,54 @@ $('sbFDelete').addEventListener('click', async () => {
    - halb:    gerade step 2k  -> seq[k] komplett
               ungerade 2k+1   -> oben seq[k+1], unten noch seq[k]
    ========================================================= */
+/* =========================================================
+   Bildschirm wach halten, solange Noten angezeigt werden
+   1. Screen Wake Lock (neuere iPadOS-Versionen, Chrome, Edge)
+   2. Auf dem iPad zusätzlich ein unsichtbares, stummes Mini-Video
+      in Schleife – das hält auch ältere iPadOS-Versionen wach.
+   ========================================================= */
+const AWAKE_MP4 = 'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAN/bW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAC7gAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAql0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAC7gAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAABAAAAAQAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAu4AABAAAABAAAAAAIhbWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAABAAAAAwABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABzG1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAAYxzdGJsAAAAvHN0c2QAAAAAAAAAAQAAAKxhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAABAAEABIAAAASAAAAAAAAAABFUxhdmM2MC4zMS4xMDIgbGlieDI2NAAAAAAAAAAAAAAAGP//AAAAMmF2Y0MBZAAK/+EAF2dkAAqs2V7ARAAAAwAEAAADABA8SJZYAQAEaO+Py/34+AAAAAAQcGFzcAAAAAEAAAABAAAAFGJ0cnQAAAAAAAAIGAAACBgAAAAYc3R0cwAAAAAAAAABAAAABgAAIAAAAAAUc3RzcwAAAAAAAAABAAAAAQAAAEBjdHRzAAAAAAAAAAYAAAABAABAAAAAAAEAAKAAAAAAAQAAQAAAAAABAAAAAAAAAAEAACAAAAAAAQAAQAAAAAAcc3RzYwAAAAAAAAABAAAAAQAAAAYAAAABAAAALHN0c3oAAAAAAAAAAAAAAAYAAALHAAAADQAAAA0AAAANAAAADQAAAA4AAAAUc3RjbwAAAAAAAAABAAADrwAAAGJ1ZHRhAAAAWm1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAALWlsc3QAAAAlqXRvbwAAAB1kYXRhAAAAAQAAAABMYXZmNjAuMTYuMTAwAAAACGZyZWUAAAMRbWRhdAAAAqwGBf//qNxF6b3m2Ui3lizYINkj7u94MjY0IC0gY29yZSAxNjQgcjMxMDggMzFlMTlmOSAtIEguMjY0L01QRUctNCBBVkMgY29kZWMgLSBDb3B5bGVmdCAyMDAzLTIwMjMgLSBodHRwOi8vd3d3LnZpZGVvbGFuLm9yZy94MjY0Lmh0bWwgLSBvcHRpb25zOiBjYWJhYz0xIHJlZj0xIGRlYmxvY2s9MTotMzotMyBhbmFseXNlPTB4MzoweDMgbWU9aGV4IHN1Ym1lPTIgcHN5PTEgcHN5X3JkPTIuMDA6MC43MCBtaXhlZF9yZWY9MCBtZV9yYW5nZT0xNiBjaHJvbWFfbWU9MSB0cmVsbGlzPTAgOHg4ZGN0PTEgY3FtPTAgZGVhZHpvbmU9MjEsMTEgZmFzdF9wc2tpcD0xIGNocm9tYV9xcF9vZmZzZXQ9MCB0aHJlYWRzPTEgbG9va2FoZWFkX3RocmVhZHM9MSBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0zIGJfcHlyYW1pZD0yIGJfYWRhcHQ9MSBiX2JpYXM9MCBkaXJlY3Q9MSB3ZWlnaHRiPTEgb3Blbl9nb3A9MCB3ZWlnaHRwPTEga2V5aW50PTI1MCBrZXlpbnRfbWluPTIgc2NlbmVjdXQ9NDAgaW50cmFfcmVmcmVzaD0wIHJjX2xvb2thaGVhZD0xMCByYz1jcmYgbWJ0cmVlPTEgY3JmPTIzLjAgcWNvbXA9MC42MCBxcG1pbj0wIHFwbWF4PTY5IHFwc3RlcD00IGlwX3JhdGlvPTEuNDAgYXE9MToxLjIwAIAAAAATZYiEABfOf+z/wlX/2PZEor//8QAAAAlBmiQYgvnP/vAAAAAJQZ5CQgvnP4aBAAAACQGeYUQVzn+SgAAAAAkBnmNEFc5/koEAAAAKQZplNExBXOf+8Q==';
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const Awake = {
+  want: false, lock: null, video: null,
+  on() {
+    this.want = true;
+    if (isIOS || !('wakeLock' in navigator)) this.videoOn(); // zuerst, solange der Fingertipp noch „frisch“ ist
+    this.lockOn();
+  },
+  async lockOn() {
+    if (!('wakeLock' in navigator) || this.lock) return;
+    try {
+      this.lock = await navigator.wakeLock.request('screen');
+      this.lock.addEventListener('release', () => { this.lock = null; });
+      if (!this.want) this.off();
+    } catch { /* nicht erlaubt – Video übernimmt */ if (this.want) this.videoOn(); }
+  },
+  videoOn() {
+    if (!this.video) {
+      const v = document.createElement('video');
+      v.setAttribute('playsinline', '');
+      v.setAttribute('muted', '');
+      v.muted = true;
+      v.loop = true;
+      v.src = AWAKE_MP4;
+      v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.01;pointer-events:none;z-index:-1';
+      document.body.appendChild(v);
+      this.video = v;
+    }
+    this.video.play().catch(() => {});
+  },
+  off() {
+    this.want = false;
+    if (this.lock) { this.lock.release().catch(() => {}); this.lock = null; }
+    if (this.video) this.video.pause();
+  },
+};
+// Nach App-Wechsel oder Sperre wird die Sperre automatisch aufgehoben → neu anfordern
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && Awake.want) Awake.on();
+});
+
 const V = {
   title: '', songbook: null, entries: [], seq: [], entryStart: [], n: 0, step: 0, half: false,
   docs: new Map(),  // scoreId -> { task, promise }
@@ -635,6 +683,7 @@ function openSongbookPlayer(sb, startEntry) {
 }
 
 async function startPlayback(opts, startEntry) {
+  Awake.on();
   closeDocs();
   await loadAnnotations(opts.songbook);
   V.title = opts.title;
@@ -866,6 +915,7 @@ function toggleChrome() {
 $('btnBack').addEventListener('click', () => {
   Metro.stop();
   setMetroView('closed');
+  Awake.off();
   if (Ink.cur) commitStroke();
   setInkMode(false);
   closeDocs();
@@ -1444,6 +1494,6 @@ init();
 
 // Für automatische Tests
 window.__ns = {
-  DB, V, Ink, Metro, importFiles, openViewer, openSongbookPlayer, go, setHalf,
+  DB, V, Ink, Metro, Awake, importFiles, openViewer, openSongbookPlayer, go, setHalf,
   get scores() { return scores; }, get songbooks() { return songbooks; }, get curSb() { return curSb; },
 };
